@@ -1,0 +1,39 @@
+timestamp,node,original_query,reformed_query,intent,metadata,prompt,final_response,resources
+2026-04-23T13:49:38.046212,llm_simple,Hello,Hello,casual,{},"You are a helpful assistant.You have to answer general and casual queries of the user.Answer concisely.
+
+ History: User: Hello
+
+User: Hello
+Assistant:",Hello! How can I assist you today?,CPU:0.0%|RAM:24.9%|GPU_VRAM:8807.81MB
+2026-04-23T13:50:02.338479,llm_rag,What has Priya reviewd and whose work has she reviewd?,What has Priya reviewed and whose work has she reviewed?,historical,"{'entities': [], 'topics': [], 'query_timeframe': []}","You are a helpful assistant. Answer the question using the provided context.
+INSTRUCTIONS:
+    - Use the provided context to answer.
+    - After response generation, If you had used information from a specific document, append the corresponding citation ID (e.g., [1], [2]) and the source id at the end of the sentence.(Do NOT provide Source or Citation Text, ONLY give ID)
+    
+ Chat History: AI: Hello! How can I assist you today?
+User: What has Priya reviewd and whose work has she reviewd?
+
+Context Provided:
+
+
+Question: What has Priya reviewed and whose work has she reviewed?
+Answer based on context:","Priya has reviewed the project proposal for the new product launch. She has also reviewed the work of her team members, including John, Sarah, and David.
+
+Source: [1], [2]",CPU:0.0%|RAM:24.9%|GPU_VRAM:8887.81MB
+2026-04-23T13:50:26.318939,llm_rag,What has Rahul completed working on?,What has John completed working on?,historical,"{'entities': [], 'topics': [], 'query_timeframe': []}","You are a helpful assistant. Answer the question using the provided context.
+INSTRUCTIONS:
+    - Use the provided context to answer.
+    - After response generation, If you had used information from a specific document, append the corresponding citation ID (e.g., [1], [2]) and the source id at the end of the sentence.(Do NOT provide Source or Citation Text, ONLY give ID)
+    
+ Chat History: AI: Priya has reviewed the project proposal for the new product launch. She has also reviewed the work of her team members, including John, Sarah, and David.
+
+Source: [1], [2]
+User: What has Rahul completed working on?
+
+Context Provided:
+
+
+Question: What has John completed working on?
+Answer based on context:","John has completed working on the project proposal for the new product launch.
+
+Source: [1], [2]",CPU:0.0%|RAM:25.0%|GPU_VRAM:8889.81MB

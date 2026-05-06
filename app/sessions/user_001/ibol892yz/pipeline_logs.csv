@@ -1,0 +1,107 @@
+timestamp,node,original_query,reformed_query,intent,metadata,prompt,final_response,resources
+2026-04-23T13:24:23.820246,llm_simple,Hello,Hello,casual,{},"You are a helpful assistant.You have to answer general and casual queries of the user.Answer concisely.
+
+ History: User: Hello
+
+User: Hello
+Assistant:",Hello! How can I assist you today?,CPU:0.0%|RAM:23.5%|GPU_VRAM:8807.81MB
+2026-04-23T13:24:43.133061,llm_rag,What has Rahul completed working on?,What has Rahul completed working on?,historical,"{'entities': [], 'topics': [], 'query_timeframe': []}","You are a helpful assistant. Answer the question using the provided context.
+INSTRUCTIONS:
+    - Use the provided context to answer.
+    - After response generation, If you had used information from a specific document, append the corresponding citation ID (e.g., [1], [2]) and the source id at the end of the sentence.(Do NOT provide Source or Citation Text, ONLY give ID)
+    
+ Chat History: AI: Hello! How can I assist you today?
+User: What has Rahul completed working on?
+
+Context Provided:
+
+
+Question: What has Rahul completed working on?
+Answer based on context:","Rahul has completed working on the project.
+
+Source: [1]",CPU:0.0%|RAM:23.5%|GPU_VRAM:8887.81MB
+2026-04-23T13:25:10.443234,llm_rag,What is Priya going to review and whose work?,What is Priya going to review and whose work?,historical,"{'entities': [], 'topics': [], 'query_timeframe': []}","You are a helpful assistant. Answer the question using the provided context.
+INSTRUCTIONS:
+    - Use the provided context to answer.
+    - After response generation, If you had used information from a specific document, append the corresponding citation ID (e.g., [1], [2]) and the source id at the end of the sentence.(Do NOT provide Source or Citation Text, ONLY give ID)
+    
+ Chat History: AI: Rahul has completed working on the project.
+
+Source: [1]
+User: What is Priya going to review and whose work?
+
+Context Provided:
+
+
+Question: What is Priya going to review and whose work?
+Answer based on context:","Priya is going to review Rahul's work.
+
+Source: [1]",CPU:0.0%|RAM:23.5%|GPU_VRAM:8887.81MB
+2026-04-23T13:31:21.581236,llm_rag,What did she say about her work timeline?,What did Priya say about her work timeline?,historical,"{'entities': [], 'topics': [], 'query_timeframe': []}","You are a helpful assistant. Answer the question using the provided context.
+INSTRUCTIONS:
+    - Use the provided context to answer.
+    - After response generation, If you had used information from a specific document, append the corresponding citation ID (e.g., [1], [2]) and the source id at the end of the sentence.(Do NOT provide Source or Citation Text, ONLY give ID)
+    
+ Chat History: AI: Priya is going to review Rahul's work.
+
+Source: [1]
+User: What did she say about her work timeline?
+
+Context Provided:
+
+
+Question: What did Priya say about her work timeline?
+Answer based on context:","Priya did not mention anything about her work timeline in the chat history.
+
+Source: [1]",CPU:0.0%|RAM:23.5%|GPU_VRAM:8887.81MB
+2026-04-23T13:31:56.963666,llm_rag,What did Divya say about her work life?,What did Divya say about her work life?,historical,"{'entities': [], 'topics': [], 'query_timeframe': []}","You are a helpful assistant. Answer the question using the provided context.
+INSTRUCTIONS:
+    - Use the provided context to answer.
+    - After response generation, If you had used information from a specific document, append the corresponding citation ID (e.g., [1], [2]) and the source id at the end of the sentence.(Do NOT provide Source or Citation Text, ONLY give ID)
+    
+ Chat History: AI: Priya did not mention anything about her work timeline in the chat history.
+
+Source: [1]
+User: What did Divya say about her work life?
+
+Context Provided:
+
+
+Question: What did Divya say about her work life?
+Answer based on context:","Divya did not mention anything about her work life in the chat history.
+
+Source: [1]",CPU:0.0%|RAM:23.5%|GPU_VRAM:8889.81MB
+2026-04-23T13:32:16.481823,llm_rag,What did Divya Discuss?,What did Divya discuss in her work life?,historical,"{'entities': ['Divya'], 'query_timeframe': ['2026-04-23'], 'topics': []}","You are a helpful assistant. Answer the question using the provided context.
+INSTRUCTIONS:
+    - Use the provided context to answer.
+    - After response generation, If you had used information from a specific document, append the corresponding citation ID (e.g., [1], [2]) and the source id at the end of the sentence.(Do NOT provide Source or Citation Text, ONLY give ID)
+    
+ Chat History: AI: Divya did not mention anything about her work life in the chat history.
+
+Source: [1]
+User: What did Divya Discuss?
+
+Context Provided:
+
+
+Question: What did Divya discuss in her work life?
+Answer based on context:","Divya did not mention anything about her work life in the chat history.
+
+Source: [1]",CPU:0.0%|RAM:23.6%|GPU_VRAM:8889.81MB
+2026-04-23T13:34:28.214414,llm_rag,What has Rahul completed working on?,What has Rahul completed working on?,historical,"{'entities': [], 'topics': [], 'query_timeframe': []}","You are a helpful assistant. Answer the question using the provided context.
+INSTRUCTIONS:
+    - Use the provided context to answer.
+    - After response generation, If you had used information from a specific document, append the corresponding citation ID (e.g., [1], [2]) and the source id at the end of the sentence.(Do NOT provide Source or Citation Text, ONLY give ID)
+    
+ Chat History: AI: Divya did not mention anything about her work life in the chat history.
+
+Source: [1]
+User: What has Rahul completed working on?
+
+Context Provided:
+
+
+Question: What has Rahul completed working on?
+Answer based on context:","Rahul has not mentioned anything about his work life in the chat history.
+
+Source: [1]",CPU:0.0%|RAM:23.5%|GPU_VRAM:8889.81MB

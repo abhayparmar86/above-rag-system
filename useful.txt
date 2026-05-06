@@ -1,0 +1,16 @@
+# 1. Stop the current containers
+docker compose -f docker/docker-compose.yml down
+
+# 2. Rebuild forcefully without using the old cached Python files
+docker compose -f docker/docker-compose.yml build --no-cache api_retrieval
+
+# 3. Bring it back up
+docker compose -f docker/docker-compose.yml up -d
+
+docker logs -f rag_api_isolated
+
+docker logs -f rag_vllm_isolated
+
+http://localhost:9001/static/index.html
+
+docker builder prune -a -f

@@ -1,0 +1,10 @@
+Q: Hello
+A: Hello! How can I assist you today?
+Q: What has Priya reviewed and whose work has she reviewed?
+A: Priya has reviewed the project proposal for the new product launch. She has also reviewed the work of her team members, including John, Sarah, and David.
+
+Source: [1], [2]
+Q: What has John completed working on?
+A: John has completed working on the project proposal for the new product launch.
+
+Source: [1], [2]

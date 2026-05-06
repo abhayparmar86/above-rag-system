@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InsightGraph Enterprise</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background-color: #0f172a;
+            color: #f8fafc;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .ai-bubble {
+            background: #1e293b;
+            border-left: 4px solid #3b82f6;
+            border-radius: 0 12px 12px 12px;
+        }
+
+        .user-bubble {
+            background: #2563eb;
+            color: white;
+            border-radius: 12px 12px 0 12px;
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body class="h-screen flex overflow-hidden">
+
+    <div id="auth-modal" class="fixed inset-0 bg-slate-900/80 z-50 flex justify-center items-center backdrop-blur-sm">
+        <div class="bg-slate-800 p-8 rounded-xl shadow-2xl w-96 border border-slate-700">
+            <h2 class="text-2xl font-bold mb-6 flex items-center gap-3"><i class="fas fa-fingerprint text-blue-500"></i>
+                Authentication</h2>
+            <input type="text" id="auth_input" placeholder="Enter User ID (e.g., user_001)"
+                class="w-full bg-slate-900 border border-slate-600 rounded p-3 text-white outline-none focus:border-blue-500 transition mb-4">
+            <p id="auth-error" class="text-red-400 text-sm hidden mb-4">User not found in system.</p>
+            <button id="auth-btn" onclick="validateUser()"
+                class="w-full bg-blue-600 hover:bg-blue-500 text-white p-3 rounded font-semibold transition">Authenticate</button>
+        </div>
+    </div>
+
+    <div id="sidebar"
+        class="w-72 bg-slate-900 border-r border-slate-800 flex flex-col blur-sm transition-all duration-300">
+        <div class="p-4 border-b border-slate-800 flex justify-between items-center">
+            <div class="flex items-center gap-3 text-blue-400 font-bold text-lg">
+                <i class="fas fa-network-wired"></i> InsightGraph
+            </div>
+        </div>
+        <div class="p-4">
+            <button onclick="createNewChat()"
+                class="w-full bg-slate-800 hover:bg-slate-700 text-sm p-3 rounded flex items-center gap-2 transition border border-slate-700">
+                <i class="fas fa-plus"></i> New Investigation
+            </button>
+        </div>
+        <div id="chat-list" class="flex-1 overflow-y-auto p-2">
+        </div>
+        <div class="p-4 border-t border-slate-800 flex justify-between items-center bg-slate-800/50">
+            <div class="flex items-center gap-2 text-sm text-slate-300">
+                <i class="fas fa-user-circle text-slate-400 text-xl"></i>
+                <span id="display_user_id">Loading...</span>
+            </div>
+            <button onclick="logout()" class="text-slate-400 hover:text-red-400 transition" title="Save & Logout"><i
+                    class="fas fa-power-off"></i></button>
+        </div>
+    </div>
+
+    <div id="main-area" class="flex-1 flex flex-col bg-slate-900/50 blur-sm transition-all duration-300">
+        <div class="h-16 border-b border-slate-800 flex items-center px-6 justify-between bg-slate-900/80">
+            <h1 class="text-lg font-semibold text-slate-200">Retrieval Augmented Pipeline</h1>
+            <div class="flex gap-4 text-xs text-slate-500 font-mono">
+                <span><i class="fas fa-circle text-green-500 text-[10px]"></i> vLLM Active</span>
+                <span><i class="fas fa-database text-blue-500 text-[10px]"></i> SurrealDB Connected</span>
+            </div>
+        </div>
+
+        <div id="chat-container" class="flex-1 overflow-y-auto p-6 space-y-6">
+        </div>
+
+        <div class="p-6 bg-slate-900 border-t border-slate-800">
+            <div class="max-w-4xl mx-auto relative">
+                <input type="text" id="query" disabled placeholder="Query the knowledge graph..."
+                    onkeypress="if(event.key === 'Enter') sendMsg()"
+                    class="w-full bg-slate-800 border border-slate-700 rounded-lg pl-4 pr-12 py-4 text-white focus:outline-none focus:border-blue-500 transition shadow-inner">
+                <button id="send-btn" disabled onclick="sendMsg()"
+                    class="absolute right-2 top-2 bottom-2 aspect-square bg-blue-600 hover:bg-blue-500 rounded text-white transition disabled:opacity-50">
+                    <i class="fas fa-arrow-up"></i>
+                </button>
+            </div>
+            <p class="text-center text-slate-500 text-xs mt-3">AI responses are generated based on strictly isolated
+                internal memories.</p>
+        </div>
+    </div>
+
+    <script>
+        let chatCounter = 1; 
+        let currentUser = null, activeSession = null, sessions = {};
+        const genId = () => Math.random().toString(36).substr(2, 9);
+
+        let browserSessionId = sessionStorage.getItem('browser_session');
+        if (!browserSessionId) {
+            browserSessionId = 'session_' + Date.now();
+            sessionStorage.setItem('browser_session', browserSessionId);
+        }
+
+        async function validateUser() {
+            const id = document.getElementById('auth_input').value.trim();
+            if (!id) return;
+            document.getElementById('auth-btn').innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
+            try {
+                const res = await fetch(`/verify/${id}`);
+                if (!res.ok) throw new Error();
+                currentUser = id;
+                document.getElementById('auth-modal').style.display = 'none';
+                document.getElementById('sidebar').classList.remove('blur-sm');
+                document.getElementById('main-area').classList.remove('blur-sm');
+                document.getElementById('display_user_id').innerText = currentUser;
+                document.getElementById('query').disabled = false;
+                document.getElementById('send-btn').disabled = false;
+
+                // FIX: Pure in-memory wipe. No more old chats returning.
+                sessions = {};
+                createNewChat();
+            } catch {
+                document.getElementById('auth-error').classList.remove('hidden');
+                document.getElementById('auth-btn').innerHTML = 'Authenticate';
+            }
+        }
+
+        async function logout() {
+            await archiveAllSessions(); // Saves everything to CSVs
+            currentUser = null;
+            sessions = {}; // Wipes memory
+            location.reload(); // Returns to login screen cleanly
+        }
+
+        function createNewChat() {
+            const chatName = `Chat ${chatCounter}`;
+            const id = `chat_${chatCounter}_${Date.now()}`;
+            sessions[id] = { name: `New Query`, ui_history: [], log_data: [] };
+            activeSession = id;
+            chatCounter++;
+            renderSidebar(); renderChat();
+        }
+
+        function switchSession(id) {
+            if (!document.getElementById('send-btn').disabled) { activeSession = id; renderSidebar(); renderChat(); }
+        }
+
+        async function closeAndSaveSession(id, event) {
+            if (event) event.stopPropagation();
+            if (sessions[id].log_data.length > 0) {
+                await fetch('/session/close', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    keepalive: true,
+                    body: JSON.stringify({
+                        user_id: currentUser,
+                        session_id: browserSessionId,
+                        chat_id: id,
+                        history: sessions[id].log_data
+                    })
+                });
+            }
+            delete sessions[id]; // Wipes from UI
+
+            const keys = Object.keys(sessions);
+            if (keys.length === 0) createNewChat();
+            else { activeSession = keys[keys.length - 1]; renderSidebar(); renderChat(); }
+        }
+
+        async function archiveAllSessions() {
+            const keys = Object.keys(sessions);
+            for (let id of keys) {
+                if (sessions[id].log_data.length > 0) {
+                    await fetch('/session/close', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
+                        body: JSON.stringify({ user_id: currentUser, session_id: browserSessionId, chat_id: id, history: sessions[id].log_data })
+                    });
+                }
+            }
+        }
+
+        // Still protects data if the user closes the browser tab
+        window.addEventListener('beforeunload', () => { archiveAllSessions(); });
+
+        function renderSidebar() {
+            document.getElementById('chat-list').innerHTML = Object.entries(sessions).reverse().map(([id, data]) => `
+                <div onclick="switchSession('${id}')" class="p-3 rounded-lg cursor-pointer flex justify-between items-center ${id === activeSession ? 'bg-[#334155] border-l-4 border-blue-500' : 'hover:bg-[#2a364a] border-l-4 border-transparent'} transition-all mb-1 group">
+                    <span class="truncate w-40 text-slate-300 text-sm font-medium pl-2">${data.name}</span>
+                    <div class="flex gap-2">
+                        <i class="fas fa-save text-slate-500 hover:text-green-400 transition hidden group-hover:block" title="Save & Close Session" onclick="closeAndSaveSession('${id}', event)"></i>
+                        <i class="fas fa-trash-alt text-slate-500 hover:text-red-400 transition" title="Delete without saving" onclick="event.stopPropagation(); delete sessions['${id}']; renderSidebar(); renderChat();"></i>
+                    </div>
+                </div>`).join('');
+        }
+
+        function renderChat() {
+            if (!sessions[activeSession]) return;
+            document.getElementById('chat-container').innerHTML = sessions[activeSession].ui_history.map(msg => {
+                if (msg.startsWith("User: ")) return createBubble(msg.replace("User: ", ""), true);
+                let p = msg.split("||METRICS||");
+                return createBubble(p[0].replace("AI: ", ""), false, p[1]);
+            }).join('');
+            scrollToBottom();
+        }
+
+        function createBubble(text, isUser, metrics = null) {
+            let styleClass = isUser ? 'user-bubble self-end' : 'ai-bubble self-start';
+            let html = `<div class="flex flex-col max-w-[85%] ${isUser ? 'self-end' : 'self-start'} mb-2"><div class="px-6 py-4 ${styleClass} shadow-md text-[15px] leading-relaxed whitespace-pre-wrap">${text}</div>`;
+            if (metrics) {
+                try {
+                    let m = JSON.parse(metrics);
+                    html += `<div class="text-[11px] text-slate-500 mt-2 font-mono ${isUser ? 'text-right' : 'text-left'} flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}">
+                        <span title="Wait Time"><i class="fas fa-hourglass-start text-slate-600"></i> ${m.wait_time}s</span>
+                        <span title="Processing Time"><i class="fas fa-microchip text-slate-600"></i> ${m.processing_time}s</span>
+                        <span title="Resource State">[${m.resources}]</span>
+                    </div>`;
+                } catch (e) { }
+            }
+            return html + `</div>`;
+        }
+
+        function scrollToBottom() {
+            const container = document.getElementById('chat-container');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        async function sendMsg() {
+            const input = document.getElementById('query');
+            const query = input.value.trim();
+            if (!query) return;
+
+            document.getElementById('query').disabled = true;
+            document.getElementById('send-btn').disabled = true;
+            document.getElementById('send-btn').innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
+
+            sessions[activeSession].ui_history.push(`User: ${query}`);
+            if (sessions[activeSession].ui_history.length === 1) sessions[activeSession].name = query.substring(0, 25) + "...";
+
+            let string_history = sessions[activeSession].ui_history.map(msg => msg.split("||METRICS||")[0]);
+
+            renderSidebar(); renderChat();
+            input.value = '';
+
+            try {
+                const res = await fetch('/rag', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: currentUser, session_id: browserSessionId, chat_id: activeSession, query: query, history: string_history })
+                });
+                const data = await res.json();
+
+                if (!res.ok) throw new Error(data.detail || "Server Error");
+
+                sessions[activeSession].ui_history.push(`AI: ${data.response}||METRICS||${JSON.stringify(data.metrics)}`);
+
+                sessions[activeSession].log_data.push({
+                    question: query,
+                    response: data.response,
+                    query_asked_time: data.metrics.query_asked_time,
+                    wait_time: data.metrics.wait_time,
+                    processing_time: data.metrics.processing_time,
+                    response_sent_time: data.metrics.response_sent_time,
+                    resources: data.metrics.resources
+                });
+
+                renderChat();
+            } catch (err) {
+                alert(err.message);
+                sessions[activeSession].ui_history.pop();
+                renderChat();
+            }
+            finally {
+                document.getElementById('query').disabled = false;
+                document.getElementById('send-btn').disabled = false;
+                document.getElementById('send-btn').innerHTML = '<i class="fas fa-arrow-up"></i>';
+                setTimeout(() => document.getElementById('query').focus(), 100);
+            }
+        }
+    </script>
+</body>
+
+</html>

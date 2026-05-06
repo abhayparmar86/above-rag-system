@@ -1,0 +1,7 @@
+timestamp,node,original_query,reformed_query,intent,metadata,prompt,final_response,resources
+2026-04-23T12:55:08.638774,llm_simple,Hello,Hello,casual,{},"You are a helpful assistant.You have to answer general and casual queries of the user.Answer concisely.
+
+ History: User: Hello
+
+User: Hello
+Assistant:",Hello! How can I assist you today?,CPU:0.0%|RAM:24.4%|GPU_VRAM:8807.81MB
