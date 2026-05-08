@@ -1,0 +1,21 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs and test artifacts
+logs/
+*.log
+stress_test_report.csv
+detailed_trace.txt
+
+# Virtual environments
+venv/
+env/
+.env
+
+# IDE and OS generated files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

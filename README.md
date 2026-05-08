@@ -1,99 +1,403 @@
-# RAG-Chat Application - ABOVE based
+# Above RAG System
 
-This project focuses on a high-performance, resource-optimized **RAG (Retrieval-Augmented Generation)** pipeline designed to process internal knowledge queries. It leverages an **8GB VRAM constraint** using quantized models and dynamic concurrency management.
+A high-performance, asynchronous **Retrieval-Augmented Generation (RAG)** system designed for production-grade internal knowledge retrieval under strict **8GB VRAM hardware constraints**.
 
-## Key Characteristics
-*   **High-Throughput Inference:** Powered by `vLLM` with AWQ quantization for optimized GPU utilization.
-*   **Capacity-Safe Scheduling:** Semaphore-based admission control prevents GPU overload and ensures stability under high concurrency.
-*   **Robust RAG Pipeline:** Multi-node `LangGraph` architecture featuring automated query reformulation, intent routing, and metadata extraction.
-*   **Asynchronous Processing:** Non-blocking `FastAPI` worker handles concurrent requests with intelligent backpressure.
-*   **Observability:** Structured CSV logging for every pipeline step, tracking latency, GPU/RAM/CPU usage, and processing metrics per node.
+The system combines:
+
+- **FastAPI** for asynchronous API orchestration
+- **LangGraph** for multi-node reasoning workflows
+- **SurrealDB** for isolated retrieval pipelines
+- **vLLM + AWQ Quantization** for efficient LLM inference
+- **Semaphore-based admission control** for concurrency safety
+- **Process-aware observability** for accurate GPU monitoring
 
 ---
 
-## Directory Structure
+# Key Characteristics
+
+- **High-Throughput Inference:** Powered by `vLLM` running `Mistral-7B-Instruct-v0.2-AWQ` in eager mode with flash attention.
+- **Instantaneous Cold-Boots:** Local model volume mapping bypasses HuggingFace downloads, reducing startup times from ~6.5 minutes to **< 2 seconds**.
+- **Capacity-Safe Scheduling:** `asyncio.Semaphore` admission control prevents GPU KV-cache overload during high concurrency.
+- **Intelligent Startup Buffering:** Incoming requests are safely queued while vLLM profiles its KV cache during startup.
+- **Robust RAG Pipeline:** Multi-node `LangGraph` architecture featuring query reformulation, intent routing, and metadata extraction.
+- **Asynchronous Processing:** Non-blocking FastAPI workers handle concurrent requests with intelligent backpressure.
+- **Process-Aware Observability:** GPU metrics isolate only the `VLLM::EngineCore` process, eliminating desktop graphical overhead.
+- **Hierarchical Logging:** Structured session logs capture end-to-end latency, GPU usage, wait times, and pipeline traces.
+
+---
+
+# System Architecture
+
 ```text
-Project/
+Frontend UI
+     │
+     ▼
+FastAPI Worker (Semaphore Controlled)
+     │
+     ▼
+LangGraph Engine
+ ├── Reformulator
+ ├── Router
+ └── Extractor
+     │
+     ▼
+SurrealDB Retrieval
+     │
+     ▼
+vLLM Inference Server
+     │
+     ▼
+Structured Logging & Metrics
+```
+
+---
+
+# Directory Structure
+
+```text
+above-rag-system/
+├── .github/
+│   └── workflows/
+│       └── main.yml          # CI/CD linting & Docker validation
 ├── docker/
 │   ├── Dockerfile.retrieval  # API orchestration container
-│   ├── Dockerfile.vllm       # Inference server definition
-│   └── docker-compose.yml    # Orchestration & Resource limits
+│   ├── Dockerfile.vllm       # vLLM inference container
+│   └── docker-compose.yml    # Service orchestration & resource limits
 ├── app/
 │   ├── core/
-│   │   ├── engine.py         # LangGraph workflow nodes & logic
-│   │   ├── database.py       # SurrealDB & Vector retrieval
-│   │   └── logger.py         # Structured logging & metrics
+│   │   ├── engine.py         # LangGraph workflow nodes & orchestration
+│   │   ├── database.py       # SurrealDB retrieval logic
+│   │   └── logger.py         # Metrics & observability pipeline
 │   ├── main.py               # FastAPI entry point
 │   └── static/index.html     # Frontend UI
 ├── test/
-│   └── stress_test_loop.py   # Load testing script
+│   └── loop_stress_test.py   # Async stress testing script
 ├── requirements.txt
 ├── README.md
 └── CHANGELOG.md
 ```
 
-### Component Breakdown
-*   **Core Engine (`app/core/`)**
-    *   `engine.py`: The "brain." Contains the LangGraph definition, workflow nodes, and LLM integration.
-    *   `database.py`: Handles SurrealDB connections, vector embeddings, and history/fact retrieval logic.
-    *   `logger.py`: Manages performance monitoring and the hierarchical logging structure (`logs/sessions/{session_id}/{user_id}/{chat_id}/`).
-*   **Infrastructure (`docker/`)**
-    *   `Dockerfile.retrieval`: Configures the FastAPI environment for the orchestration layer.
-    *   `Dockerfile.vllm`: Configures the optimized vLLM inference server.
-    *   `docker-compose.yml`: Defines the network, resource reservations, and environmental variables.
-*   **Testing & UI**
-    *   `app/main.py`: The API entry point. Manages concurrent request limits via `asyncio.Semaphore`.
-    *   `app/static/index.html`: The Frontend UI. Handles authentication and maintains persistent browser sessions.
-    *   `test/stress_test_loop.py`: A continuous load-testing script to simulate high concurrency.
+---
+
+# Component Breakdown
+
+## docker/
+
+Contains Dockerfiles and orchestration configuration.
+
+### Responsibilities
+
+- Builds FastAPI orchestration containers
+- Builds isolated vLLM inference containers
+- Mounts local AWQ models directly into containers
+- Configures networking and GPU resource reservations
 
 ---
 
-## Job Flow
-1. **Frontend/UI:** User authenticates and initiates a query via `index.html`.
-2. **FastAPI (main.py):** Receives the request; `asyncio.Semaphore` regulates concurrent access.
-3. **LangGraph (engine.py):**
-    *   **Reformulator:** Cleans query and resolves history.
-    *   **Router:** Classifies intent (casual, factual, or historical).
-    *   **Extractor:** Pulls metadata for database filtering.
-4. **Backend (database.py):** Executes vector search or fact lookup in **SurrealDB**.
-5. **Inference (vLLM):** Processes the prompt and generates a response using the context-injected template.
-6. **Logging:** Results and performance metrics are written to `/logs/sessions/{session_id}/{user_id}/{chat_id}/`.
+## app/main.py (FastAPI Worker)
+
+Main API entry point.
+
+### Responsibilities
+
+- Manages global concurrency using `asyncio.Semaphore`
+- Handles startup buffering using `asyncio.Event`
+- Prevents dropped requests during vLLM initialization
+- Routes requests into the LangGraph pipeline
 
 ---
 
-## Usage Guide
+## app/core/engine.py (LangGraph Engine)
 
-### Launching the System
+The orchestration layer of the RAG system.
+
+### Pipeline Nodes
+
+- **Reformulator**
+  - Rewrites queries using conversational history
+
+- **Router**
+  - Classifies intent:
+    - Casual
+    - Factual
+    - Historical
+
+- **Extractor**
+  - Extracts metadata such as dates and entities for retrieval filtering
+
+---
+
+## app/core/database.py (Retrieval Layer)
+
+Handles all SurrealDB communication and vector retrieval.
+
+### Features
+
+- Strict logical isolation boundaries
+
+```sql
+type::string(transcript.conversation.user) = $user_record
+```
+
+- Duplicate context filtering using cosine similarity checks
+
+```python
+util.cos_sim > 0.95
+```
+
+- Historical and factual retrieval pipelines
+
+---
+
+## app/core/logger.py (Observability Layer)
+
+Tracks pipeline metrics and operational telemetry.
+
+### Features
+
+- Process-aware NVML GPU monitoring
+- Tracks only `VLLM::EngineCore`
+- Captures:
+  - GPU utilization
+  - RAM usage
+  - CPU usage
+  - Request latency
+  - Node execution timings
+
+### Outputs
+
+- `pipeline_logs.csv`
+- `session_metrics.csv`
+
+### Log Structure
+
+```text
+logs/sessions/{session_id}/{user_id}/{chat_id}/
+```
+
+---
+
+## test/loop_stress_test.py (Load Testing)
+
+Asynchronous multi-worker client simulator used for stress testing.
+
+### Capabilities
+
+- Simulates concurrent users
+- Generates sustained request pressure
+- Measures:
+  - API latency
+  - Processing time
+  - Queue delays
+  - Throughput stability
+
+### Output
+
+```text
+stress_test_report.csv
+```
+
+---
+
+# Job Flow
+
+1. **Frontend/UI**
+   - User authenticates and submits a query via `index.html`
+
+2. **Startup Buffer Check**
+   - `main.py` verifies the `vllm_ready_event`
+   - Requests wait safely while the model initializes
+
+3. **Admission Control**
+   - Request acquires a Semaphore slot
+
+4. **LangGraph Execution**
+   - Query reformulation
+   - Intent routing
+   - Metadata extraction
+
+5. **Retrieval**
+   - SurrealDB fetches isolated contextual vectors
+
+6. **Inference**
+   - Prompt and retrieved context are forwarded to vLLM
+
+7. **Observability**
+   - Metrics and timing data are captured
+
+8. **Response Delivery**
+   - Final response is returned to the UI
+
+---
+
+# Configuration & Environment Variables
+
+Configured primarily inside:
+
+```text
+docker/docker-compose.yml
+```
+
+| Variable | Description | Default |
+|---|---|---|
+| `SURREAL_URL` | SurrealDB WebSocket endpoint | `ws://host.docker.internal:8000/rpc` |
+| `VLLM_URL` | vLLM inference endpoint | `http://vllm_retrieval:8005/v1` |
+| `VLLM_TARGET_GPU_MEMORY_GB` | Target VRAM constraint | `8` |
+
+---
+
+# GPU & Inference Configuration
+
+Passed directly to the vLLM container.
+
+| Argument | Purpose |
+|---|---|
+| `--max-model-len=8192` | Native context window |
+| `--enforce-eager` | Disables CUDA graph capture for stable execution |
+| `--served-model-name=mistral-local` | Matches LangChain endpoint configuration |
+
+---
+
+# Setup & Usage
+
+## 1. Prerequisites
+
+- Docker
+- Docker Compose
+- NVIDIA GPU
+- NVIDIA Container Toolkit
+
+---
+
+## 2. Local Model Setup
+
+Ensure the AWQ model exists locally:
+
+```text
+/home/android/Documents/abhay/models/Mistral-7B-Instruct-v0.2-AWQ
+```
+
+If your path differs, update the volume mapping in:
+
+```text
+docker/docker-compose.yml
+```
+
+---
+
+## 3. Launching the System
+
+### Build and Start
+
 ```bash
-# Build and Start
-docker compose -f docker/docker-compose.yml up --build
+docker compose -f docker/docker-compose.yml up --build -d
+```
 
-# Full cleanup if code changes
+### Monitor vLLM Boot Logs
+
+```bash
+docker logs -f rag_vllm_isolated
+```
+
+---
+
+## 4. Full Cleanup (Optional)
+
+Useful when Docker cache or containers become inconsistent.
+
+```bash
 docker builder prune -a -f
+
 docker compose -f docker/docker-compose.yml build --no-cache api_retrieval
 ```
 
-### UI Testing
-Navigate to `http://localhost:9001/static/index.html`. Authenticate with any ID to start an investigation. Metrics are displayed per response, and chat logs are auto-saved to `/logs/sessions/`.
+---
 
-### Stress Testing
-The `test/stress_test_loop.py` script tests the pipeline under heavy load.
-*   **Configure:** Set `CONCURRENT_REQUESTS` and `TOTAL_REQUESTS_TO_SEND` (set to `None` for infinite loop) in the script.
-*   **Run:** `python test/stress_test_loop.py`
-*   **Output:** Generates `stress_test_report.csv` which benchmarks `total_api_latency` vs. `processing_time`.
-*   **Exit:** Press `Ctrl+C` for a graceful shutdown and report generation.
+# UI Testing
+
+Navigate to:
+
+```text
+http://localhost:9001/static/index.html
+```
+
+### Features
+
+- Real-time response metrics
+- Persistent browser sessions
+- Auto-archived chat logs
+- Request-lock protection during generation
 
 ---
 
-## Tech Stack
-*   **Inference Engine:** `vLLM` (Mistral-7B-Instruct-v0.2-AWQ, Quantized)
-*   **Orchestration:** `LangGraph` & `LangChain`
-*   **API Framework:** `FastAPI` (Asynchronous, Semaphore-throttled)
-*   **Database:** `SurrealDB` (Graph-based retrieval)
-*   **Infrastructure:** `Docker` & `Docker Compose`
-*   **Monitoring:** `psutil` & `pynvml` (Real-time GPU/CPU/RAM tracking)
+# Stress Testing
 
-## Performance Notes
-*   **VRAM:** Optimized for ~8GB VRAM using `AWQ` quantization and `--enforce-eager`.
-*   **Isolation:** Every UI visit generates a unique `session_id`, ensuring logs are isolated in the `/logs/` directory per session.
-*   **Throughput:** Managed by an API-side `Semaphore` and `vLLM` sequence queuing to balance latency and memory stability.
+Run from the project root:
+
+```bash
+python test/loop_stress_test.py
+```
+
+### Stress Test Configuration
+
+Inside `test/loop_stress_test.py`:
+
+- `CONCURRENT_REQUESTS`
+- `TOTAL_REQUESTS_TO_SEND`
+
+Set:
+
+```python
+TOTAL_REQUESTS_TO_SEND = None
+```
+
+for infinite load generation.
+
+### Output
+
+```text
+stress_test_report.csv
+```
+
+### Graceful Exit
+
+```bash
+Ctrl + C
+```
+
+---
+
+# Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Inference Engine | vLLM |
+| Model | Mistral-7B-Instruct-v0.2-AWQ |
+| Orchestration | LangGraph & LangChain |
+| API Framework | FastAPI |
+| Database | SurrealDB |
+| Infrastructure | Docker & Docker Compose |
+| Monitoring | psutil & pynvml |
+
+---
+
+# Performance Notes
+
+- Optimized for ~8GB VRAM environments using AWQ quantization
+- Uses `--enforce-eager` for predictable inference execution
+- Semaphore-based admission control prevents GPU memory spikes
+- vLLM continuous batching improves throughput under concurrency
+- Every session generates isolated hierarchical logs
+- Local model mounting reduces cold-boot times to under 2 seconds
+
+---
+
+# CHANGELOG
+
+See:
+
+```text
+CHANGELOG.md
+```
+
+for release history and architectural evolution.

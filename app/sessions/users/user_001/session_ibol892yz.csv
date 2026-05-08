@@ -1,8 +1,0 @@
-Question_Asked,Response_Generated,Query_Asked_Time,Wait_Time_s,Processing_Time_s,Response_Sent_Time,Process_Resource_Usage
-Hello,Hello! How can I assist you today?,2026-04-23 13:24:23,0.0000,0.7419,2026-04-23 13:24:23,CPU:0.0%|RAM:23.5%|GPU_VRAM:8807.81MB
-What has Rahul completed working on?,Rahul has completed working on the project.  Source: [1],2026-04-23 13:24:37,0.0000,5.2843,2026-04-23 13:24:43,CPU:0.0%|RAM:23.5%|GPU_VRAM:8887.81MB
-What is Priya going to review and whose work?,Priya is going to review Rahul's work.  Source: [1],2026-04-23 13:25:05,0.0000,4.9872,2026-04-23 13:25:10,CPU:0.0%|RAM:23.5%|GPU_VRAM:8887.81MB
-What did she say about her work timeline?,Priya did not mention anything about her work timeline in the chat history.  Source: [1],2026-04-23 13:31:16,0.0000,5.0516,2026-04-23 13:31:21,CPU:0.0%|RAM:23.5%|GPU_VRAM:8887.81MB
-What did Divya say about her work life?,Divya did not mention anything about her work life in the chat history.  Source: [1],2026-04-23 13:31:51,0.0000,5.0213,2026-04-23 13:31:56,CPU:0.0%|RAM:23.5%|GPU_VRAM:8889.81MB
-What did Divya Discuss?,Divya did not mention anything about her work life in the chat history.  Source: [1],2026-04-23 13:32:15,0.0000,1.4475,2026-04-23 13:32:16,CPU:0.0%|RAM:23.6%|GPU_VRAM:8889.81MB
-What has Rahul completed working on?,Rahul has not mentioned anything about his work life in the chat history.  Source: [1],2026-04-23 13:34:23,0.0000,4.9984,2026-04-23 13:34:28,CPU:0.0%|RAM:23.5%|GPU_VRAM:8889.81MB
