@@ -21,7 +21,7 @@ This document tracks the evolution of the InsightGraph Enterprise RAG System fro
 
 ---
 
-## [2.0.0] - 2026-05-06
+## [2.0.0] - 2026-05-5
 
 ### Major Enhancements & Refactoring
 
@@ -48,7 +48,7 @@ This document tracks the evolution of the InsightGraph Enterprise RAG System fro
 
 ---
 
-## [1.3.0] - 2026-05-05
+## [1.3.0] - 2026-05-1
 
 ### Backend Integration & Optimization
 
@@ -63,7 +63,7 @@ This document tracks the evolution of the InsightGraph Enterprise RAG System fro
 
 ---
 
-## [1.2.0] - 2026-05-06
+## [1.2.0] - 2026-04-27
 
 ### Structural Overhaul
 
@@ -78,7 +78,7 @@ This document tracks the evolution of the InsightGraph Enterprise RAG System fro
 
 ---
 
-## [1.1.0] - 2026-05-06
+## [1.1.0] - 2026-04-22
 
 ### Initial Deployment & Dockerization
 
@@ -90,7 +90,7 @@ This document tracks the evolution of the InsightGraph Enterprise RAG System fro
 
 ---
 
-## [1.0.0] - 2026-05-06
+## [1.0.0] - 2026-04-17
 
 ### The Prototype
 
