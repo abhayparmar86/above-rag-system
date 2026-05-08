@@ -1,2 +1,0 @@
-Question_Asked,Response_Generated,Query_Asked_Time,Wait_Time_s,Processing_Time_s,Response_Sent_Time,Process_Resource_Usage
-Hello,Hello! How can I assist you today?,2026-04-23 12:55:07,0.0000,0.7351,2026-04-23 12:55:08,CPU:0.0%|RAM:24.4%|GPU_VRAM:8807.81MB

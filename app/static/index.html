@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>InsightGraph Enterprise</title>
+    <title>Above RAG System</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -55,7 +55,7 @@
         class="w-72 bg-slate-900 border-r border-slate-800 flex flex-col blur-sm transition-all duration-300">
         <div class="p-4 border-b border-slate-800 flex justify-between items-center">
             <div class="flex items-center gap-3 text-blue-400 font-bold text-lg">
-                <i class="fas fa-network-wired"></i> InsightGraph
+                <i class="fas fa-network-wired"></i> Above RAG System
             </div>
         </div>
         <div class="p-4">
@@ -71,7 +71,7 @@
                 <i class="fas fa-user-circle text-slate-400 text-xl"></i>
                 <span id="display_user_id">Loading...</span>
             </div>
-            <button onclick="logout()" class="text-slate-400 hover:text-red-400 transition" title="Save & Logout"><i
+            <button onclick="logout()" class="text-slate-400 hover:text-red-400 transition" title="Logout"><i
                     class="fas fa-power-off"></i></button>
         </div>
     </div>
@@ -104,10 +104,11 @@
     </div>
 
     <script>
-        let chatCounter = 1; 
+        let chatCounter = 1;
         let currentUser = null, activeSession = null, sessions = {};
-        const genId = () => Math.random().toString(36).substr(2, 9);
+        let isGenerating = false;
 
+        const genId = () => Math.random().toString(36).substr(2, 9);
         let browserSessionId = sessionStorage.getItem('browser_session');
         if (!browserSessionId) {
             browserSessionId = 'session_' + Date.now();
@@ -128,8 +129,6 @@
                 document.getElementById('display_user_id').innerText = currentUser;
                 document.getElementById('query').disabled = false;
                 document.getElementById('send-btn').disabled = false;
-
-                // FIX: Pure in-memory wipe. No more old chats returning.
                 sessions = {};
                 createNewChat();
             } catch {
@@ -139,13 +138,18 @@
         }
 
         async function logout() {
-            await archiveAllSessions(); // Saves everything to CSVs
+            if (isGenerating) {
+                alert("Please wait for the current response to finish before logging out.");
+                return;
+            }
+            await archiveAllSessions();
             currentUser = null;
-            sessions = {}; // Wipes memory
-            location.reload(); // Returns to login screen cleanly
+            sessions = {};
+            location.reload();
         }
 
         function createNewChat() {
+            if (isGenerating) return; // UI Lock
             const chatName = `Chat ${chatCounter}`;
             const id = `chat_${chatCounter}_${Date.now()}`;
             sessions[id] = { name: `New Query`, ui_history: [], log_data: [] };
@@ -155,11 +159,21 @@
         }
 
         function switchSession(id) {
-            if (!document.getElementById('send-btn').disabled) { activeSession = id; renderSidebar(); renderChat(); }
+            if (isGenerating) return; // UI Lock
+            activeSession = id;
+            renderSidebar();
+            renderChat();
         }
 
-        async function closeAndSaveSession(id, event) {
+        // Renamed and updated logic: Delete ALWAYS saves, then creates a fresh window.
+        async function deleteAndSaveSession(id, event) {
             if (event) event.stopPropagation();
+            if (isGenerating) {
+                alert("Cannot delete a chat while AI is generating.");
+                return;
+            }
+
+            // Save before deleting
             if (sessions[id].log_data.length > 0) {
                 await fetch('/session/close', {
                     method: 'POST',
@@ -173,11 +187,8 @@
                     })
                 });
             }
-            delete sessions[id]; // Wipes from UI
-
-            const keys = Object.keys(sessions);
-            if (keys.length === 0) createNewChat();
-            else { activeSession = keys[keys.length - 1]; renderSidebar(); renderChat(); }
+            delete sessions[id];
+            createNewChat(); // Always force a new chat window
         }
 
         async function archiveAllSessions() {
@@ -192,7 +203,6 @@
             }
         }
 
-        // Still protects data if the user closes the browser tab
         window.addEventListener('beforeunload', () => { archiveAllSessions(); });
 
         function renderSidebar() {
@@ -200,8 +210,7 @@
                 <div onclick="switchSession('${id}')" class="p-3 rounded-lg cursor-pointer flex justify-between items-center ${id === activeSession ? 'bg-[#334155] border-l-4 border-blue-500' : 'hover:bg-[#2a364a] border-l-4 border-transparent'} transition-all mb-1 group">
                     <span class="truncate w-40 text-slate-300 text-sm font-medium pl-2">${data.name}</span>
                     <div class="flex gap-2">
-                        <i class="fas fa-save text-slate-500 hover:text-green-400 transition hidden group-hover:block" title="Save & Close Session" onclick="closeAndSaveSession('${id}', event)"></i>
-                        <i class="fas fa-trash-alt text-slate-500 hover:text-red-400 transition" title="Delete without saving" onclick="event.stopPropagation(); delete sessions['${id}']; renderSidebar(); renderChat();"></i>
+                        <i class="fas fa-trash-alt text-slate-500 hover:text-red-400 transition hidden group-hover:block" title="Save & Delete" onclick="deleteAndSaveSession('${id}', event)"></i>
                     </div>
                 </div>`).join('');
         }
@@ -238,13 +247,14 @@
         }
 
         async function sendMsg() {
+            if (isGenerating) return;
+
             const input = document.getElementById('query');
             const query = input.value.trim();
             if (!query) return;
 
-            const query_id = `UI-${Date.now().toString().slice(-6)}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
-
-            document.getElementById('query').disabled = true;
+            isGenerating = true;
+            // Note: input remains enabled so user can type, but send is blocked
             document.getElementById('send-btn').disabled = true;
             document.getElementById('send-btn').innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
 
@@ -259,7 +269,7 @@
             try {
                 const res = await fetch('/rag', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ user_id: currentUser, session_id: browserSessionId, chat_id: activeSession, query: query, query_id: query_id, history: string_history })
+                    body: JSON.stringify({ user_id: currentUser, session_id: browserSessionId, chat_id: activeSession, query: query, history: string_history })
                 });
                 const data = await res.json();
 
@@ -279,12 +289,12 @@
 
                 renderChat();
             } catch (err) {
-                alert(err.message || "An unexpected error occurred.");
+                alert(err.message);
                 sessions[activeSession].ui_history.pop();
                 renderChat();
             }
             finally {
-                document.getElementById('query').disabled = false;
+                isGenerating = false;
                 document.getElementById('send-btn').disabled = false;
                 document.getElementById('send-btn').innerHTML = '<i class="fas fa-arrow-up"></i>';
                 setTimeout(() => document.getElementById('query').focus(), 100);
