@@ -1,5 +1,5 @@
 import asyncio, time, traceback, os
-import urllib.request
+from urllib.request import Request, urlopen
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
@@ -47,8 +47,8 @@ async def check_vllm_health():
     while True:
         try:
             def fetch():
-                req = urllib.request.Request(vllm_url, method="GET")
-                with urllib.request.urlopen(req, timeout=2.0) as response:
+                req = Request(vllm_url, method="GET")
+                with urlopen(req, timeout=2.0) as response:
                     return response.status
             status = await asyncio.to_thread(fetch)
             if status == 200:
