@@ -39,12 +39,12 @@ class DBManager:
             meta_filters = []
             
             if entities:
-                res = conn.query("(SELECT VALUE in FROM mentions WHERE string::contains(string::lowercase(type::string(out)), $entity))", 
+                res = conn.query("(SELECT VALUE type::string(in) FROM mentions WHERE string::contains(string::lowercase(type::string(out)), $entity))", 
                                  {"entity": entities[0].lower()})
-                print('-'*50)
-                print(res)
-                if res and res[0].get('result'):
-                    params["allowed_ids"] = res[0]['result']
+                # print('-'*50)
+                # print(res)
+                if res:
+                    params["allowed_ids"] = res
                     meta_filters.append("type::string(insight) IN $allowed_ids")
             
             if timeframe and len(timeframe) == 2:
@@ -67,22 +67,28 @@ class DBManager:
                 ORDER BY score DESC 
                 LIMIT 10
             """
-            print('-'*50)
-            print(query_str)
-            print(params)
-            print(f"[DEBUG] Querying for user: users:{user_id}")
+            # print('-'*50)
+            # print(query_str)
+            # print(params)
+            # print(f"[DEBUG] Querying for user: users:{user_id}")
             # Check if the user exists in the DB right now
             exists = conn.query("SELECT * FROM users WHERE id = $id", {"id": f"users:{user_id}"})
-            print(f"[DEBUG] User exists in DB: {bool(exists)}")
+            # print(f"[DEBUG] User exists in DB: {bool(exists)}")
             results = conn.query(query_str, params)
             data = results if results else []
-            print('#'*50)
-            print(results)
+            # print('#'*50)
+            # print(results)
             
             unique_chunks = []
             seen_embeddings = []
             
             for item in data:
+                
+                if not isinstance(item, dict):
+                    # print('#'*50)
+                    # print(f"[DEBUG] Skipping non-dict item: {type(item)} - {item}")
+                    continue
+                
                 text = item.get('source_text','')
                 chunk_vec = embedder.encode(text)
                 

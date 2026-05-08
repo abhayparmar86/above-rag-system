@@ -48,6 +48,8 @@ def save_session_to_csv(user_id: str, session_id: str, history_data: list):
     user_dir = os.path.join(LOG_DIR, "users", user_id)
     os.makedirs(user_dir, exist_ok=True)
     
+    ist_time = datetime.now(ZoneInfo("Asia/Kolkata"))
+    
     # FIX: Removed the timestamp. Now, 1 session ID = 1 constantly updated CSV file.
     filename = f"session_{session_id}.csv"
     filepath = os.path.join(user_dir, filename)

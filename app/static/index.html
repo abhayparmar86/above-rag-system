@@ -242,6 +242,8 @@
             const query = input.value.trim();
             if (!query) return;
 
+            const query_id = `UI-${Date.now().toString().slice(-6)}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+
             document.getElementById('query').disabled = true;
             document.getElementById('send-btn').disabled = true;
             document.getElementById('send-btn').innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
@@ -257,7 +259,7 @@
             try {
                 const res = await fetch('/rag', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ user_id: currentUser, session_id: browserSessionId, chat_id: activeSession, query: query, history: string_history })
+                    body: JSON.stringify({ user_id: currentUser, session_id: browserSessionId, chat_id: activeSession, query: query, query_id: query_id, history: string_history })
                 });
                 const data = await res.json();
 
@@ -277,7 +279,7 @@
 
                 renderChat();
             } catch (err) {
-                alert(err.message);
+                alert(err.message || "An unexpected error occurred.");
                 sessions[activeSession].ui_history.pop();
                 renderChat();
             }
