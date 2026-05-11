@@ -255,7 +255,7 @@ async def run(stop_event):
 # ── Entry point ───────────────────────────────────────────────────────────────
 def main():
     print(f"\n{BOLD}{CYAN}{'═'*70}{RESET}")
-    print(f"{BOLD}{CYAN}  InsightGraph RAG — Stress Test Client{RESET}")
+    print(f"{BOLD}{CYAN}  ABOVE RAG — Stress Test Client{RESET}")
     print(f"{BOLD}{CYAN}  Concurrency : {CONCURRENT_REQUESTS}  |  Target: {API_URL}{RESET}")
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

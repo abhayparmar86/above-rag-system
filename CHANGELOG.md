@@ -1,6 +1,6 @@
 # Changelog
 
-This document tracks the evolution of the InsightGraph Enterprise RAG System from its initial prototype to the current production-ready version (v2.0.0).
+This document tracks the evolution of the ABOVE based RAG System from its initial prototype to the current production-ready version (v2.0.0).
 
 ## [2.1.0] - 2026-05-08
 
