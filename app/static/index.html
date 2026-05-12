@@ -253,12 +253,15 @@
             const query = input.value.trim();
             if (!query) return;
 
+            const query_id = `UI-${Date.now().toString().slice(-6)}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+
             isGenerating = true;
             // Note: input remains enabled so user can type, but send is blocked
             document.getElementById('send-btn').disabled = true;
             document.getElementById('send-btn').innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
 
             sessions[activeSession].ui_history.push(`User: ${query}`);
+            
             if (sessions[activeSession].ui_history.length === 1) sessions[activeSession].name = query.substring(0, 25) + "...";
 
             let string_history = sessions[activeSession].ui_history.map(msg => msg.split("||METRICS||")[0]);
@@ -269,7 +272,7 @@
             try {
                 const res = await fetch('/rag', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ user_id: currentUser, session_id: browserSessionId, chat_id: activeSession, query: query, history: string_history })
+                    body: JSON.stringify({ user_id: currentUser, session_id: browserSessionId, chat_id: activeSession, query: query, query_id: query_id, history: string_history })
                 });
                 const data = await res.json();
 
