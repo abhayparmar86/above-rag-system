@@ -18,18 +18,98 @@ class PipelineState(TypedDict):
     metadata: Dict
     context: List[str]
     history: List[str]
+    english_history: List[str]
     response: str
     user_id: str
     session_id: str
     latencies: Dict
     reformulated_query: str
     chat_id: str
+    language: str
+    english_question: str
+    english_response: str
 
 # --- NODES ---
 
+
+async def translate_in_node(state: PipelineState):
+    start = time.time()
+    # lang = state.get("language","English").strip()
+    text = state['question']
+    if lang.lower() in ['en','english']:
+        return {
+            "english_question": state['question'] 
+        }
+    
+    prompt = f"""[INST] You are expert translator.Translate the following text from {lang} to English.
+              STRICT RULE: Output ONLY the translated English Text. Do NOT add quotes, conversational filler, or explanations.
+              
+              Text: {state['question']}
+              English: Translation: [\INST]"""
+    
+    # prompt = f"""[INST] You are an expert linguist. Analyze the following text.
+    #     1. Detect the language of the text.
+    #     2. Translate the text into English. If it is already in English, just output the exact same text.
+    
+    #     STRICT RULE: Output ONLY a valid JSON object. Do not add quotes, markdown, or explanations.
+    
+    #     Format:
+    #     {{
+    #         "language": "Name of language (e.g., English, Spanish, Hindi)",
+    #         "english_translation": "The English text"
+    #     }}
+
+        # Text: {text}
+        # JSON Output: [/INST]"""
+              
+    translated_q = (await llm.ainvoke(prompt)).strip()
+    
+    # raw_response = (await llm.ainvoke(prompt)).strip()
+    
+    
+    return {
+        "question": translated_q,
+        "english_question": translated_q,
+        "latencies": {**state.get("letencies",{}), "translate_in": time.time() - start}
+    }
+    
+
+async def translate_out_node(state: PipelineState):
+    start = time.time()
+    lang = state.get("language","English").strip()
+    
+    # Save Native History to txt
+    session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
+    native_file = os.path.join(session_dir, "native_history.txt")
+    
+    if lang.lower() in ['en','english']:
+        with open(native_file, "a", encoding="utf-8") as f:
+            f.write(f"Q: {state['original_query']}\nA: {state['response']}\n")
+        return{
+            "english_response": state['response'],
+            "latencies": {**state.get('latencies',{}), "translate_out": time.time() - start}            
+        }
+        
+    prompt = f"""[INST] You are an expert Translator. Translate the following English text into {lang}.
+            STRICT RULE: Output ONLY the translated {lang} text. Do NOT add Quotes, conversational filler, or explanations.
+            
+            English Text: {state['response']}
+            {lang} Translation: [\INST]"""
+            
+    translated_res = (await llm.ainvoke(prompt)).strip()
+    
+    with open(native_file, "a", encoding="utf-8") as f:
+        f.write(f"Q: {state['original_query']}\nA: {translated_res}\n")                              
+    
+    return {
+        "english_response": state['response'],
+        "response": translated_res,
+        "latencies": {**state.get("latencies",{}), "translate_out": time.time() - start}
+    }
+
 async def reformulation_node(state: PipelineState):
     start = time.time()
-    messages = state.get("history", [])[-4:]
+    messages = state.get("english_history", [])[-4:]
     history_str = "\n".join(messages)
     
     prompt = f"""[INST] You are an expert Query Reformulator.
@@ -128,7 +208,7 @@ async def factual_retrieval_node(state: PipelineState):
 
 async def llm_simple_node(state: PipelineState):
     start = time.time()
-    messages = state.get("history", [])[-4:]
+    messages = state.get("english_history", [])[-4:]
     history_str = "\n".join(messages)
     # session_dir = get_session_path(state['user_id'], state['session_id'])
     prompt = f"<s>[INST] You are a helpful assistant.You have to answer general and casual queries of the user.Answer concisely.\nRespond to only casual queries.Do not perform complex tasks like code generation.If you are instructed to perform specific task like generate code, just respond: '''Sorry I am just for casual chat and not for specific complex tasks'''. \n\n History: {history_str}\n\nUser: {state['question']}\nAssistant: [/INST]"
@@ -140,7 +220,7 @@ async def llm_simple_node(state: PipelineState):
     log_step_to_csv(log_state, "llm_simple", prompt, response)
     
     session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
-    history_file = os.path.join(session_dir, "history.txt")
+    history_file = os.path.join(session_dir, "english_history.txt")
     with open(history_file, "a") as f: f.write(f"Q: {state['question']}\nA: {response}\n")
     # return {
     #     "response": response, 
@@ -155,7 +235,7 @@ async def llm_simple_node(state: PipelineState):
 
 async def llm_factual_node(state: PipelineState):
     start = time.time()
-    messages = state.get("history", [])[-4:]
+    messages = state.get("english_history", [])[-4:]
     history_str = "\n".join(messages)
     facts_ctx = state.get("context", "No specific facts found.")
     # session_dir = get_session_path(state['user_id'], state['session_id'])
@@ -180,7 +260,7 @@ async def llm_factual_node(state: PipelineState):
     log_state = {**state, "latencies": new_latencies}
     log_step_to_csv(log_state, "llm_factual", prompt, response)
     session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
-    history_file = os.path.join(session_dir, "history.txt")
+    history_file = os.path.join(session_dir, "english_history.txt")
     with open(history_file, "a") as f: f.write(f"Q: {state['question']}\nA: {response}\n")
     # return {
     #     "response": response, 
@@ -197,7 +277,7 @@ async def llm_rag_node(state: PipelineState):
     start = time.time()
     # session_dir = get_session_path(state['user_id'], state['session_id'])
     # history_str = "\n".join(state.get("history", [])[-4:])
-    messages = state.get("history", [])[-4:]
+    messages = state.get("english_history", [])[-4:]
     history_str = "\n".join(messages)
     context_str = "\n".join(state.get('context', []))
     prompt = f"""You are a helpful assistant. Answer the question using the provided context.\nINSTRUCTIONS:
@@ -217,7 +297,7 @@ async def llm_rag_node(state: PipelineState):
     log_state = {**state, "latencies": new_latencies}
     log_step_to_csv(log_state, "llm_rag", prompt, response)
     session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
-    history_file = os.path.join(session_dir, "history.txt")
+    history_file = os.path.join(session_dir, "english_history.txt")
     with open(history_file, "a") as f: f.write(f"Q: {state['question']}\nA: {response}\n")
     # return {
     #     "response": response, 
@@ -240,16 +320,21 @@ workflow.add_node("factual_retrieval", factual_retrieval_node)
 workflow.add_node("llm_simple", llm_simple_node)
 workflow.add_node("llm_factual", llm_factual_node)
 workflow.add_node("llm_rag", llm_rag_node)
+workflow.add_node("translate_in", translate_in_node)
+workflow.add_node("translate_out", translate_out_node)
 
-workflow.set_entry_point("reformulator")
+# workflow.set_entry_point("reformulator")
+workflow.set_entry_point("translate_in")
+workflow.add_edge("translate_in","reformulator")
 workflow.add_edge("reformulator", "router")
 workflow.add_conditional_edges("router", lambda s: "llm_simple" if "casual" in s["category"] 
                                else ("factual_retrieval" if "factual" in s["category"] else "extractor"))
 workflow.add_edge("extractor", "retriever")
 workflow.add_edge("retriever", "llm_rag")
 workflow.add_edge("factual_retrieval", "llm_factual")
-workflow.add_edge("llm_rag", END)
-workflow.add_edge("llm_factual", END)
-workflow.add_edge("llm_simple", END)
+workflow.add_edge("llm_rag", "translate_out")
+workflow.add_edge("llm_factual", "translate_out")
+workflow.add_edge("llm_simple", "translate_out")
+workflow.add_edge("translate_out", END)
 
 rag_graph = workflow.compile()
