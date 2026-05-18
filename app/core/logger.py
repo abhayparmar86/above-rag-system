@@ -108,13 +108,14 @@ def log_step_to_csv(state, node_name, prompt, response):
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow([
-                "timestamp", "node", "original_query", "reformed_query", 
+                "timestamp", "node", "original_query", "translated_q", "reformed_query", 
                 "intent", "metadata", "prompt", "final_response", "latencies", "resources"
             ])
         writer.writerow([
             simple_time,
             node_name,
             state.get('original_query', ''),
+            state.get('english_question',''),
             state.get('reformulated_query', ''),
             state.get('category', ''),
             str(state.get('metadata', {})),

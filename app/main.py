@@ -12,6 +12,17 @@ from rich.console import Console
 import logging
 import torch
 from core.database import DBManager, embedder, util
+from langdetect import detect, DetectorFactory
+import langdetect.lang_detect_exception
+
+
+DetectorFactory.seed = 0 # Seed to ensure consistent language detection
+
+LANG_MAP = {
+    "en": "English", "es": "Spanish", "fr": "French", "de": "German", 
+    "hi": "Hindi", "ar": "Arabic", "zh-cn": "Chinese", "ja": "Japanese",
+    "ru": "Russian", "pt": "Portuguese", "it": "Italian"
+}
 
 api = FastAPI(title="Above RAG System API")
 api.mount("/static", StaticFiles(directory="static"), name="static")
@@ -43,6 +54,8 @@ class QueryRequest(BaseModel):
     query: str
     query_id: str
     history: list[str] = []
+    english_history: list[str] = []
+   
 
 class SessionExportRequest(BaseModel):
     user_id: str
@@ -97,7 +110,16 @@ async def close_and_save_session(req: SessionExportRequest):
 async def handle_query(req: QueryRequest):
     query_received_at = time.time()
     query_asked_time_str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S")
-
+    
+    try:
+        lang_code = detect(req.query)
+        detected_language = LANG_MAP.get(lang_code, "English")
+    except langdetect.lang_detect_exception.LangDetectException:
+        # Fallback to English if the text is too short/ambiguous or empty
+        detected_language = "English"
+        
+    console.print(f"[cyan]🌐 Detected Language:[/cyan] [bold white]{detected_language}[/]")    
+    
     # Server-side parallel logging: Entering the buffer
     console.print(
         f"\n[dim][{datetime.now().strftime('%H:%M:%S.%f')[:-3]}][/] "
@@ -189,6 +211,10 @@ async def handle_query(req: QueryRequest):
                 "session_id": req.session_id,
                 "chat_id": req.chat_id,
                 "history": req.history,
+                "english_history": req.english_history,
+                "language": detected_language,
+                "english_question": "",
+                "english_response": "",
                 "latencies": {},
                 "metadata": {},
                 "context": [],
@@ -241,7 +267,9 @@ async def handle_query(req: QueryRequest):
             )
             
             return {
-                "response": final_response, 
+                "response": final_response,
+                "english_question": result.get("english_question", req.query),
+                "english_response": result.get("english_response", final_response), 
                 "history": updated_history, 
                 "metrics": metrics,
                 "latencies": result.get("latencies", {})

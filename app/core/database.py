@@ -41,8 +41,8 @@ class DBManager:
             if entities:
                 res = conn.query("(SELECT VALUE in FROM mentions WHERE string::contains(string::lowercase(type::string(out)), $entity))", 
                                  {"entity": entities[0].lower()})
-                print('-'*50)
-                print(res)
+                # print('-'*50)
+                # print(res)
                 if res and res[0].get('result'):
                     params["allowed_ids"] = res[0]['result']
                     meta_filters.append("type::string(insight) IN $allowed_ids")
@@ -67,17 +67,17 @@ class DBManager:
                 ORDER BY score DESC 
                 LIMIT 10
             """
-            print('-'*50)
-            print(query_str)
-            print(params)
+            # print('-'*50)
+            # print(query_str)
+            # print(params)
             print(f"[DEBUG] Querying for user: users:{user_id}")
             # Check if the user exists in the DB right now
             exists = conn.query("SELECT * FROM users WHERE id = $id", {"id": f"users:{user_id}"})
             print(f"[DEBUG] User exists in DB: {bool(exists)}")
             results = conn.query(query_str, params)
             data = results if results else []
-            print('#'*50)
-            print(results)
+            # print('#'*50)
+            # print(results)
             
             unique_chunks = []
             seen_embeddings = []
