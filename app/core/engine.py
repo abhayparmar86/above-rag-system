@@ -216,7 +216,7 @@ async def extraction_node(state: PipelineState):
     INSTRUCTIONS:
     1. 'entities': Extract ONLY names of people(e.g., 'Raj'),place, company, or product.STRICT RULE: Do NOT put Project names here.
     2. 'topics': (OPTIONAL) Extract ONLY specific entity like project names(e.g., Project ABOVE),If mentioned any.It should be an entity,(not general words like 'project','task','topic').If no topic can be extracted, return []. STRICT RULE: If a project name is mentioned, it MUST go in 'topics', never in 'entities'.
-    3. 'query_timeframe': You are experienced detective who can find out the user is asking question from which date. You are expert in reading between the lines, and find out timeframe, which includes results which the user is asking for and query refers to. REMEMBER: Based on User Query Intent you identify that which date/date range data could contain answer for the query, but you have to identify if the period/timeframe from query refers to query on which data was stored, or it is any timeframe/period that is just a planning or mentioned entity in the conversation(For example, 'What is John going to do next week' does not give us timeframe this data was stored on, it refers to timeframe in future, which is an entity, or just reference mentioned in data, which is not to be used for filtering our data based on timeframe.).  Calculate the date range relevant to the search. 
+    3. 'timeframe': You are experienced detective who can find out the user is asking question from which date. You are expert in reading between the lines, and find out timeframe, which includes results which the user is asking for and query refers to. REMEMBER: Based on User Query Intent you identify that which date/date range data could contain answer for the query, but you have to identify if the period/timeframe from query refers to query on which data was stored, or it is any timeframe/period that is just a planning or mentioned entity in the conversation(For example, 'What is John going to do next week' does not give us timeframe this data was stored on, it refers to timeframe in future, which is an entity, or just reference mentioned in data, which is not to be used for filtering our data based on timeframe.).  Calculate the date range relevant to the search. 
        - If the user asks about "yesterday", "last week", or "in Q3", calculate the specific ISO range [YYYY-MM-DD, YYYY-MM-DD]. Keep one date as buffer date in range for timeframe.
        - If the user asks about a "plan for Q4" or "future meeting", do NOT use Q4 as the search range. Instead, use the most recent 3-6 months as the search range because that's when the planning discussion likely happened.
        - If no time is implied, return []. 
@@ -226,7 +226,7 @@ async def extraction_node(state: PipelineState):
     Return ONLY a JSON object with this structure:
     {{
         "entities": ["Name1", ...],
-        "query_timeframe": ["YYYY-MM-DD", "YYYY-MM-DD"],
+        "timeframe": ["YYYY-MM-DD", "YYYY-MM-DD"],
         "topics": [ topics extracted ]        
     }}      
 
@@ -238,16 +238,17 @@ async def extraction_node(state: PipelineState):
         "type": "object",
         "properties": {
             "entities": {"type": "array", "items": {"type": "string"}},
-            "query_timeframe": {"type": "array", "items": {"type": "string"}},
+            "timeframe": {"type": "array", "items": {"type": "string"}},
             "topics": {"type": "array", "items": {"type": "string"}}
         },
-        "required": ["entities", "query_timeframe", "topics"]
+        "required": ["entities", "timeframe", "topics"]
     }
        
     # raw = (await llm.ainvoke(prompt)).strip()
     # Pass the schema to vLLM via extra_body
     raw = (await llm.ainvoke(
-        prompt, 
+        prompt,
+        stop=["[/INST] ", "</s>"], 
         extra_body={"guided_json": extraction_schema}
     ))
     
@@ -258,7 +259,7 @@ async def extraction_node(state: PipelineState):
         metadata = json.loads(raw)
         # metadata = raw
     except:
-        metadata = {"entities": [], "topics": [], "query_timeframe": []}
+        metadata = {"entities": [], "topics": [], "timeframe": []}
         # metadata = {}
     return {"metadata": metadata, "latencies": {**state.get("latencies", {}), "metadata": time.time() - start}}
 
