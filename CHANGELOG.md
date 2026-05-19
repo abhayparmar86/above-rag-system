@@ -2,6 +2,15 @@
 
 This document tracks the evolution of the ABOVE based RAG System from its initial prototype to the current production-ready version (v2.0.0).
 
+
+## [2.1.1] - 2026-05-15
+
+### Guardrails & Output Enforcement
+
+Added guardrails for out of bound queries.
+Added guardrails for intent and extraction nodes for proper schema and format of response.
+
+
 ## [2.1.0] - 2026-05-08
 
 ### Major Observability, UI Guardrails & Boot Performance Upgrade
