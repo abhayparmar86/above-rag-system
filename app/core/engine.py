@@ -5,6 +5,7 @@ from langchain_openai import OpenAI
 from core.database import DBManager
 from core.logger import log_step_to_csv, get_session_path, save_detailed_log
 from typing import TypedDict, List, Dict
+from core.translation import translate_to_english, translate_to_native
 
 # Initialization
 llm = OpenAI(openai_api_base="http://vllm_retrieval:8005/v1", openai_api_key="EMPTY", model_name="mistral-local", temperature=0.1, stop=["User:", "History:", "Query:", "query", "\n\nUser:", "AI:"])
@@ -41,51 +42,14 @@ async def translate_in_node(state: PipelineState):
     
     if lang.lower() in ['en','english']:
         new_latencies = {**state.get("latencies",{}), "translate_in": time.time() - start}
-        # log_state = {**state, "english_question": text, "latencies": new_latencies}
-        # log_step_to_csv(log_state, "translate_in", "N/A (English Detected)", text)
+
         return {
             "english_question": text,
             "latencies": new_latencies
         }
-    
-    prompt = f"""[INST] You are expert translator.Translate the following text from {lang} to English.
-              STRICT RULE: Output ONLY the translated English Text. Do NOT add quotes, conversational filler, or explanations.
               
-              Text: {state['question']}
-              English: Translation: [\INST]"""
-    
-    # prompt = f"""[INST] You are an expert linguist. Analyze the following text.
-    #     1. Detect the language of the text.
-    #     2. Translate the text into English. If it is already in English, just output the exact same text.
-    
-    #     STRICT RULE: Output ONLY a valid JSON object. Do not add quotes, markdown, or explanations.
-    
-    #     Format:
-    #     {{
-    #         "language": "Name of language (e.g., English, Spanish, Hindi)",
-    #         "english_translation": "The English text"
-    #     }}
+    translated_q = await translate_to_english(llm, text, lang)
 
-    #     Text: {text}
-    #     JSON Output: [/INST]"""
-              
-    translated_q = (await llm.ainvoke(prompt)).strip()
-    
-    # raw_response = (await llm.ainvoke(prompt)).strip()
-    
-    # try:
-    #     # Clean up in case the LLM adds markdown ```json ... ```
-    #     cleaned = raw_response.replace("```json", "").replace("```", "").strip()
-    #     result = json.loads(cleaned)
-    #     detected_lang = result.get("language", "English")
-    #     eng_text = result.get("english_translation", text) 
-    # except Exception as e:
-    #     print(f"[ERROR] LLM Language Detection Failed: {e}. Fallback to English.")
-    #     detected_lang = "English"
-    #     eng_text = text      
-    
-    # log_state = {**state, "english_question": translated_q, "latencies": new_latencies}
-    # log_step_to_csv(log_state, "translate_in", prompt, translated_q)
     new_latencies = {**state.get("latencies",{}), "translate_in": time.time() - start}
     return {
         "question": translated_q,
@@ -107,31 +71,20 @@ async def translate_out_node(state: PipelineState):
             f.write(f"Q: {state['original_query']}\nA: {state['response']}\n")
             
         new_latencies = {**state.get('latencies',{}), "translate_out": time.time() - start}
-        # Log bypassed translation
-        # log_state = {**state, "latencies": new_latencies}
-        # log_step_to_csv(log_state, "translate_out", "N/A (English Detected)", state['response'])
-            
+
         return{
             "english_response": state['response'],
             "latencies": {**state.get('latencies',{}), "translate_out": time.time() - start}            
         }
-        
-    prompt = f"""[INST] You are an expert Translator. Translate the following English text into {lang}.
-            STRICT RULE: Output ONLY the translated {lang} text. Do NOT add Quotes, conversational filler, or explanations.
+
             
-            English Text: {state['response']}
-            {lang} Translation: [\INST]"""
-            
-    translated_res = (await llm.ainvoke(prompt)).strip()
+    translated_res = await translate_to_native(llm, state['response'], lang)
     
     with open(native_file, "a", encoding="utf-8") as f:
         f.write(f"Q: {state['original_query']}\nA: {translated_res}\n")                              
     
     new_latencies = {**state.get("latencies",{}), "translate_out": time.time() - start}
-    
-    # log_state = {**state, "response": translated_res, "english_response": state['response'], "latencies": new_latencies}
-    # log_step_to_csv(log_state, "translate_out", prompt, translated_res)
-    
+
     return {
         "english_response": state['response'],
         "response": translated_res,
@@ -195,8 +148,7 @@ async def intent_node(state: PipelineState):
 
     Query: {state['question']}
     Category: [/INST]"""    
-    # category = (await llm.ainvoke(prompt)).strip().lower()
-    
+ 
     # GUARDAIL: Force vLLM to ONLY generate one of these three exact strings
     category = (await llm.ainvoke(
         prompt,
@@ -243,9 +195,7 @@ async def extraction_node(state: PipelineState):
         },
         "required": ["entities", "timeframe", "topics"]
     }
-       
-    # raw = (await llm.ainvoke(prompt)).strip()
-    # Pass the schema to vLLM via extra_body
+
     raw = (await llm.ainvoke(
         prompt,
         stop=["[/INST] ", "</s>"], 
@@ -255,12 +205,10 @@ async def extraction_node(state: PipelineState):
     console.print(f"################ RAW Metadata: ################### \n {raw} ")
     
     try:
-        # metadata = json.loads(raw.replace("'''json","").replace("'''",""))
         metadata = json.loads(raw)
-        # metadata = raw
     except:
         metadata = {"entities": [], "topics": [], "timeframe": []}
-        # metadata = {}
+
     return {"metadata": metadata, "latencies": {**state.get("latencies", {}), "metadata": time.time() - start}}
 
 async def retrieval_node(state: PipelineState):
@@ -276,33 +224,47 @@ async def factual_retrieval_node(state: PipelineState):
 async def llm_simple_node(state: PipelineState):
     start = time.time()
     messages = state.get("english_history", [])[-4:]
-    # history_str = "\n".join(messages)
+
     if len(messages) == 0:
         history_str = "This is the first query of conversation. No history available."
     else:
         history_str = "\n".join(messages)
-    # session_dir = get_session_path(state['user_id'], state['session_id'])
     prompt = f"<s>[INST] You are a helpful assistant.You have to answer general and casual queries of the user.Answer concisely.\nRespond to only casual queries.Do not perform complex tasks like code generation.If you are instructed to perform specific task like generate code, just respond: '''Sorry I am just for casual chat and not for specific complex tasks'''. \n\n History: {history_str}\n\nUser: {state['question']}\nAssistant: [/INST]"
     response = (await llm.ainvoke(prompt)).strip()
     
     new_latencies = {**state.get("latencies", {}), "llm-response": time.time() - start}
-    # save_detailed_log(session_dir, state, prompt, "llm_simple", response=response)
     log_state = {**state, "latencies": new_latencies}
     log_step_to_csv(log_state, "llm_simple", prompt, response)
     
     session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
     history_file = os.path.join(session_dir, "english_history.txt")
     with open(history_file, "a") as f: f.write(f"Q: {state['question']}\nA: {response}\n")
-    # return {
-    #     "response": response, 
-    #     "history": state.get("history", []) + [f"Q: {state['question']}", f"A: {response}"],
-    #     "latencies": new_latencies
-    # }
+
     return {
         "response": response, 
         "latencies": new_latencies
     }
-    # return {"response": response, "history": state.get("history", []) + [f"Q: {state['question']}", f"A: {response}"]}
+   
+async def refusal_node(state: PipelineState):
+    start = time.time()
+    
+    # Canned response - Zero LLM latency!
+    response = "I am a personal assistant designed to answer questions about your daily conversations, meetings, and extracted insights. I cannot write code, solve math problems, role-play, or answer queries outside of this scope."
+    
+    new_latencies = {**state.get("latencies", {}), "refusal": time.time() - start}
+    
+    log_state = {**state, "latencies": new_latencies}
+    log_step_to_csv(log_state, "refusal", "N/A (Input Guardrail Triggered)", response)
+    
+    session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
+    history_file = os.path.join(session_dir, "english_history.txt")
+    with open(history_file, "a") as f: 
+        f.write(f"Q: {state['question']}\nA: {response}\n")
+    
+    return {
+        "response": response, 
+        "latencies": new_latencies
+    }
 
 async def refusal_node(state: PipelineState):
     start = time.time()
@@ -328,13 +290,12 @@ async def refusal_node(state: PipelineState):
 async def llm_factual_node(state: PipelineState):
     start = time.time()
     messages = state.get("english_history", [])[-4:]
-    # history_str = "\n".join(messages)
+
     if len(messages) == 0:
         history_str = "This is the first query of conversation. No history available."
     else:
         history_str = "\n".join(messages)
     facts_ctx = state.get("context", "No specific facts found.")
-    # session_dir = get_session_path(state['user_id'], state['session_id'])
     prompt = f"""You are a personal assistant with access to a knowledge graph of facts about the User.
      - If you use information, you MUST append the citation index (e.g., [1]) and the source id at the end of the sentence.
     - At the very end of your answer, list the "Sources" mapping the index to the Fact_ID (e.g., [1]: facts:fact_123).
@@ -350,7 +311,6 @@ async def llm_factual_node(state: PipelineState):
     
     Answer based strictly on the User Facts Context provided:"""    
     response = (await llm.ainvoke(prompt)).strip()
-    # save_detailed_log(session_dir, state, prompt, "llm_factual", response=response)
     
     new_latencies = {**state.get("latencies", {}), "llm-response": time.time() - start}
     log_state = {**state, "latencies": new_latencies}
@@ -358,23 +318,14 @@ async def llm_factual_node(state: PipelineState):
     session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
     history_file = os.path.join(session_dir, "english_history.txt")
     with open(history_file, "a") as f: f.write(f"Q: {state['question']}\nA: {response}\n")
-    # return {
-    #     "response": response, 
-    #     "history": state.get("history", []) + [f"Q: {state['question']}", f"A: {response}"],
-    #     "latencies": new_latencies
-    # }
+
     return {
         "response": response, 
         "latencies": new_latencies
     }
-    # return {"response": response, "history": state.get("history", []) + [f"Q: {state['question']}", f"A: {response}"]}
-
+    
 async def llm_rag_node(state: PipelineState):
     start = time.time()
-    # session_dir = get_session_path(state['user_id'], state['session_id'])
-    # history_str = "\n".join(state.get("history", [])[-4:])
-    messages = state.get("english_history", [])[-4:]
-    # history_str = "\n".join(messages)
     if len(messages) == 0:
         history_str = "This is the first query of conversation. No history available."
     else:
@@ -389,27 +340,18 @@ async def llm_rag_node(state: PipelineState):
     \n Chat History: {history_str}\n\nContext Provided:\n{context_str}\n\nQuestion: {state['question']}\nAnswer based on context:"""
     response = (await llm.ainvoke(prompt)).strip()
     new_latencies = {**state.get("latencies", {}), "llm-response": time.time() - start}
-    # log_step_to_csv(state['user_id'], state['session_id'], {
-    #     "original_query": state.get('original_query'), "reformulated_query": state.get('reformulated_query'),
-    #     "intent": state['category'], "metadata": str(state['metadata']), "prompt": prompt, "final_response": response
-    # })
-    
+
     log_state = {**state, "latencies": new_latencies}
     log_step_to_csv(log_state, "llm_rag", prompt, response)
     session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
     history_file = os.path.join(session_dir, "english_history.txt")
     with open(history_file, "a") as f: f.write(f"Q: {state['question']}\nA: {response}\n")
-    # return {
-    #     "response": response, 
-    #     "history": state.get("history", []) + [f"Q: {state['question']}", f"A: {response}"],
-    #     "latencies": new_latencies
-    # }
+
     return {
         "response": response, 
         "latencies": new_latencies
     }
-    # return {"response": response, "history": state.get("history", []) + [f"Q: {state['question']}", f"A: {response}"]}
-
+   
 # --- GRAPH DEFINITION ---
 workflow = StateGraph(PipelineState)
 workflow.add_node("reformulator", reformulation_node)
@@ -440,8 +382,6 @@ def route_intent(state):
 workflow.set_entry_point("translate_in")
 workflow.add_edge("translate_in","reformulator")
 workflow.add_edge("reformulator", "router")
-# workflow.add_conditional_edges("router", lambda s: "llm_simple" if "casual" in s["category"] 
-#                                else ("factual_retrieval" if "factual" in s["category"] else "extractor"))
 
 workflow.add_conditional_edges("router", route_intent)
 workflow.add_edge("extractor", "retriever")

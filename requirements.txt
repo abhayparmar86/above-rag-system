@@ -9,3 +9,4 @@ langchain_openai
 pynvml
 sentence-transformers
 langgraph
+langdetect
