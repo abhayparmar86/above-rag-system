@@ -12,17 +12,7 @@ from rich.console import Console
 import logging
 import torch
 from core.database import DBManager, embedder, util
-from langdetect import detect, DetectorFactory
-import langdetect.lang_detect_exception
-
-
-DetectorFactory.seed = 0 # Seed to ensure consistent language detection
-
-LANG_MAP = {
-    "en": "English", "es": "Spanish", "fr": "French", "de": "German", 
-    "hi": "Hindi", "ar": "Arabic", "zh-cn": "Chinese", "ja": "Japanese",
-    "ru": "Russian", "pt": "Portuguese", "it": "Italian"
-}
+from core.translation import detect_language
 
 api = FastAPI(title="Above RAG System API")
 api.mount("/static", StaticFiles(directory="static"), name="static")
@@ -111,12 +101,7 @@ async def handle_query(req: QueryRequest):
     query_received_at = time.time()
     query_asked_time_str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S")
     
-    try:
-        lang_code = detect(req.query)
-        detected_language = LANG_MAP.get(lang_code, lang_code)
-    except langdetect.lang_detect_exception.LangDetectException:
-        # Fallback to English if the text is too short/ambiguous or empty
-        detected_language = "English"
+    detected_language = detect_language(req.query)
         
     console.print(f"[cyan]🌐 Detected Language:[/cyan] [bold white]{detected_language}[/]")    
     

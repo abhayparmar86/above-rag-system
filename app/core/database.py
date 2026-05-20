@@ -31,7 +31,7 @@ class DBManager:
             isolation = "type::string(transcript.conversation.user) = $user_record"
             
             entities = metadata.get("entities", [])
-            timeframe = metadata.get("query_timeframe", [])
+            timeframe = metadata.get("timeframe", [])
             # conditions, params = [], {"qvec": vec}
             # Combine with metadata filters
             # conditions = [isolation_clause]
@@ -43,9 +43,17 @@ class DBManager:
                                  {"entity": entities[0].lower()})
                 # print('-'*50)
                 # print(res)
-                if res and res[0].get('result'):
-                    params["allowed_ids"] = res[0]['result']
-                    meta_filters.append("type::string(insight) IN $allowed_ids")
+                if res:
+                    # params["allowed_ids"] = res
+                    # meta_filters.append("type::string(insight) IN $allowed_ids")
+                    if isinstance(res[0], dict) and 'result' in res[0]:
+                        extracted_ids = res[0]['result']
+                    else:
+                        extracted_ids = res
+                    
+                    # Convert RecordID objects to strings so they work with the IN clause
+                    params["allowed_ids"] = [str(record_id) for record_id in extracted_ids]
+                    meta_filters.append("type::string(insight) IN $allowed_ids")    
             
             if timeframe and len(timeframe) == 2:
                 # conditions.append("created_at >= $start AND created_at <= $end")
