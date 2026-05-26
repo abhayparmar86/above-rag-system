@@ -42,14 +42,13 @@ async def translate_in_node(state: PipelineState):
     
     if lang.lower() in ['en','english']:
         new_latencies = {**state.get("latencies",{}), "translate_in": time.time() - start}
-
         return {
             "english_question": text,
             "latencies": new_latencies
         }
               
     translated_q = await translate_to_english(llm, text, lang)
-
+    
     new_latencies = {**state.get("latencies",{}), "translate_in": time.time() - start}
     return {
         "question": translated_q,
@@ -71,12 +70,11 @@ async def translate_out_node(state: PipelineState):
             f.write(f"Q: {state['original_query']}\nA: {state['response']}\n")
             
         new_latencies = {**state.get('latencies',{}), "translate_out": time.time() - start}
-
+                   
         return{
             "english_response": state['response'],
             "latencies": {**state.get('latencies',{}), "translate_out": time.time() - start}            
         }
-
             
     translated_res = await translate_to_native(llm, state['response'], lang)
     
@@ -84,7 +82,7 @@ async def translate_out_node(state: PipelineState):
         f.write(f"Q: {state['original_query']}\nA: {translated_res}\n")                              
     
     new_latencies = {**state.get("latencies",{}), "translate_out": time.time() - start}
-
+        
     return {
         "english_response": state['response'],
         "response": translated_res,
@@ -104,12 +102,15 @@ async def reformulation_node(state: PipelineState):
     Task: Rewrite the 'Latest Query' into a standalone, unambiguous question based on the 'History'.
     
     Rules:
-    1. If the query is already standalone, output ONLY the query exactly as it is.
+    1. If the query is already standalone, or if it is a general/casual question (e.g., greetings, 'who are you'), output ONLY the query exactly as it is.
     2. If the query is a follow-up, resolve vague references (e.g., 'he', 'it', 'that') using the History.
-    3. STRICT RULE: Keep 'User', 'me', 'my' and specific names (John, Rahul) exactly as they appear in the query.
+    3. If the query is a general question (e.g., 'who are you', 'hello', 'what is AI') or changes the subject, IGNORE the history and output the exact query.
+    3. STRICT RULE: Keep 'User', 'me', 'my', 'you', 'your' and specific names (John, Rahul) exactly as they appear in the query.
     4. STRICT RULE: Do NOT include citations, sources, or any conversation metadata.
     5. STRICT RULE: Return ONLY the reformulated query text. No conversational filler, no explanations, no headers.
-    6. Do NOT write any explanation about your response, like 'No history provided', 'Exact as given in original query' etc. Just return the query without any additional explanation, notes or meta-talks or unuseful text.
+    6. STRICT RULE: If the user changes the subject, DO NOT force a connection to the history.
+    7. Do NOT write any explanation about your response, like 'No history provided', 'Exact as given in original query' etc. Just return the query without any additional explanation, notes or meta-talks or unuseful text.
+    8. STRICT RULE: NEVER Change pronouns like 'you', 'your', 'yourself', 'me' or 'my' and nouns(names like 'Raj', 'Neha'). Keep them exactly as the user typed typed.
 
     History:
     {history_str}
@@ -122,6 +123,13 @@ async def reformulation_node(state: PipelineState):
     Standalone Query: [/INST]"""
       
     reformed = (await llm.ainvoke(prompt)).strip()
+    
+    # Guardrail to prevent explanation text
+    if "(" in reformed: 
+        reformed = reformed.split("(")[0].strip()
+    if "[" in reformed: 
+        reformed = reformed.split("[")[0].strip()
+    
     return {
         "question": reformed,
         "reformulated_query": reformed,
@@ -148,12 +156,18 @@ async def intent_node(state: PipelineState):
 
     Query: {state['question']}
     Category: [/INST]"""    
- 
+    
     # GUARDAIL: Force vLLM to ONLY generate one of these three exact strings
     category = (await llm.ainvoke(
         prompt,
         extra_body={"guided_choice": ["casual", "factual", "historical", "out_of_bounds"]}
     )).strip().lower()
+    
+    # Guardrail for avoid explanation
+    if "(" in category: 
+        category = category.split("(")[0].strip()
+    if "[" in category: 
+        category = category.split("[")[0].strip()
     
     return {"category": category, "latencies": {**state.get("latencies", {}), "router": time.time() - start}}
 
@@ -195,7 +209,7 @@ async def extraction_node(state: PipelineState):
         },
         "required": ["entities", "timeframe", "topics"]
     }
-
+       
     raw = (await llm.ainvoke(
         prompt,
         stop=["[/INST] ", "</s>"], 
@@ -208,7 +222,6 @@ async def extraction_node(state: PipelineState):
         metadata = json.loads(raw)
     except:
         metadata = {"entities": [], "topics": [], "timeframe": []}
-
     return {"metadata": metadata, "latencies": {**state.get("latencies", {}), "metadata": time.time() - start}}
 
 async def retrieval_node(state: PipelineState):
@@ -224,7 +237,6 @@ async def factual_retrieval_node(state: PipelineState):
 async def llm_simple_node(state: PipelineState):
     start = time.time()
     messages = state.get("english_history", [])[-4:]
-
     if len(messages) == 0:
         history_str = "This is the first query of conversation. No history available."
     else:
@@ -266,31 +278,10 @@ async def refusal_node(state: PipelineState):
         "latencies": new_latencies
     }
 
-async def refusal_node(state: PipelineState):
-    start = time.time()
-    
-    # Canned response - Zero LLM latency!
-    response = "I am a personal assistant designed to answer questions about your daily conversations, meetings, and extracted insights. I cannot write code, solve math problems, role-play, or answer queries outside of this scope."
-    
-    new_latencies = {**state.get("latencies", {}), "refusal": time.time() - start}
-    
-    log_state = {**state, "latencies": new_latencies}
-    log_step_to_csv(log_state, "refusal", "N/A (Input Guardrail Triggered)", response)
-    
-    session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
-    history_file = os.path.join(session_dir, "english_history.txt")
-    with open(history_file, "a") as f: 
-        f.write(f"Q: {state['question']}\nA: {response}\n")
-    
-    return {
-        "response": response, 
-        "latencies": new_latencies
-    }
-
 async def llm_factual_node(state: PipelineState):
     start = time.time()
     messages = state.get("english_history", [])[-4:]
-
+    
     if len(messages) == 0:
         history_str = "This is the first query of conversation. No history available."
     else:
@@ -326,6 +317,8 @@ async def llm_factual_node(state: PipelineState):
     
 async def llm_rag_node(state: PipelineState):
     start = time.time()
+    messages = state.get("english_history", [])[-4:]
+
     if len(messages) == 0:
         history_str = "This is the first query of conversation. No history available."
     else:
