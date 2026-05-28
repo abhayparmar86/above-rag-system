@@ -281,15 +281,14 @@ async def refusal_node(state: PipelineState):
 async def llm_factual_node(state: PipelineState):
     start = time.time()
     messages = state.get("english_history", [])[-4:]
-    
+    # history_str = "\n".join(messages)
     if len(messages) == 0:
         history_str = "This is the first query of conversation. No history available."
     else:
         history_str = "\n".join(messages)
     facts_ctx = state.get("context", "No specific facts found.")
+    # session_dir = get_session_path(state['user_id'], state['session_id'])
     prompt = f"""You are a personal assistant with access to a knowledge graph of facts about the User.
-     - If you use information, you MUST append the citation index (e.g., [1]) and the source id at the end of the sentence.
-    - At the very end of your answer, list the "Sources" mapping the index to the Fact_ID (e.g., [1]: facts:fact_123).
     - Do not invent, hallucinate, or assume any facts.Do NOT use your own knowledge or general world knowledge to answer.
     - Ignore any previous interactions in 'History' when forming your answer; they are for context only, do not try to answer any query from it.
     
@@ -309,7 +308,7 @@ async def llm_factual_node(state: PipelineState):
     session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
     history_file = os.path.join(session_dir, "english_history.txt")
     with open(history_file, "a") as f: f.write(f"Q: {state['question']}\nA: {response}\n")
-
+  
     return {
         "response": response, 
         "latencies": new_latencies
@@ -317,34 +316,47 @@ async def llm_factual_node(state: PipelineState):
     
 async def llm_rag_node(state: PipelineState):
     start = time.time()
+
     messages = state.get("english_history", [])[-4:]
 
     if len(messages) == 0:
         history_str = "This is the first query of conversation. No history available."
     else:
         history_str = "\n".join(messages)
+    
+    raw_context_list = state.get('context', [])    
     context_str = "\n".join(state.get('context', []))
+    
     prompt = f"""You are a helpful assistant. Answer the question using the provided context.\nINSTRUCTIONS:
     - Use the provided context to answer.
     - If the answer is not present in the context, you MUST explicitly state: "I'm sorry, but I couldn't find any information regarding this in the database.". Do NOT use your own knowledge or general world knowledge to answer.
     - Do not invent, hallucinate, or assume any facts.
     - Ignore any previous interactions in 'History' when forming your answer; they are for context only, do not try to answer any query from it.
-    - After response generation, If you had used information from a specific document, append the corresponding citation ID (e.g., [1], [2]) and the source id at the end of the sentence.(Do NOT provide Source or Citation Text, ONLY give ID. Do not give more than 3 Source or Citation ID.)
     \n Chat History: {history_str}\n\nContext Provided:\n{context_str}\n\nQuestion: {state['question']}\nAnswer based on context:"""
     response = (await llm.ainvoke(prompt)).strip()
+    
+    # Guardrail if llm hallucinates and generates more QA pairs
+    if "Question:" in response: 
+        response = response.split("Question:")[0].strip()
+    #Guardrail for llm response, if it generates multiple lines after first line having 'Answer:' in it    
+    # if "Answer:" in response: 
+    #     response = response.split("Answer:")[0].strip()    
+    
     new_latencies = {**state.get("latencies", {}), "llm-response": time.time() - start}
 
+    
     log_state = {**state, "latencies": new_latencies}
     log_step_to_csv(log_state, "llm_rag", prompt, response)
     session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
     history_file = os.path.join(session_dir, "english_history.txt")
     with open(history_file, "a") as f: f.write(f"Q: {state['question']}\nA: {response}\n")
-
+    
     return {
         "response": response, 
         "latencies": new_latencies
     }
-   
+    
+     
 # --- GRAPH DEFINITION ---
 workflow = StateGraph(PipelineState)
 workflow.add_node("reformulator", reformulation_node)
