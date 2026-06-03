@@ -4,6 +4,26 @@ Detects the language and converts to english for llm processing and response gen
 
 import langdetect
 from langdetect import detect, DetectorFactory
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+
+MODEL_NAME = "facebook/nllb-200-distilled-600M"
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME)
+
+NLLB_MAP = {
+    "English": "eng_Latn", "Spanish": "spa_Latn", "French": "fra_Latn", 
+    "German": "deu_Latn", "Hindi": "hin_Deva", "Arabic": "arb_Arab", 
+    "Chinese": "zho_Hans", "Japanese": "jpn_Jpan", "Russian": "rus_Cyrl", 
+    "Portuguese": "por_Latn", "Italian": "ita_Latn"
+}
+
+def translate(text: str, src: str, tgt: str) -> str:
+    if src == tgt: return text
+    tokenizer.src_lang = NLLB_MAP.get(src, "eng_Latn")
+    tgt_code = NLLB_MAP.get(tgt, "eng_Latn")
+    inputs = tokenizer(text, return_tensors="pt")
+    out = model.generate(**inputs, forced_bos_token_id=tokenizer.convert_tokens_to_ids(tgt_code), max_length=512)
+    return tokenizer.batch_decode(out, skip_special_tokens=True)[0]
 
 # Seed to ensure consistent language detection
 DetectorFactory.seed = 0 
@@ -23,22 +43,8 @@ def detect_language(text: str) -> str:
         # Fallback to English if the text is too short/ambiguous or empty
         return "English"
 
-async def translate_to_english(llm, text: str, source_lang: str) -> str:
-    """Translates text from the source language to English using the LLM."""
-    prompt = f"""[INST] You are expert translator.Translate the following text from {source_lang} to English.
-              STRICT RULE: Output ONLY the translated English Text. Do NOT add quotes, conversational filler, or explanations.
-              
-              Text: {text}
-              English: Translation: [\INST]"""
-              
-    return (await llm.ainvoke(prompt)).strip()
+async def translate_to_english(text: str, source_lang: str) -> str:
+    return translate(text, source_lang, "English")
 
-async def translate_to_native(llm, text: str, target_lang: str) -> str:
-    """Translates English text to the target native language using the LLM."""
-    prompt = f"""[INST] You are an expert Translator. Translate the following English text into {lang}.
-            STRICT RULE: Output ONLY the translated {lang} text. Do NOT add Quotes, conversational filler, or explanations.
-            
-            English Text: {text}
-            {target_lang} Translation: [\INST]"""
-            
-    return (await llm.ainvoke(prompt)).strip()
+async def translate_to_native(text: str, target_lang: str) -> str:
+    return translate(text, "English", target_lang)

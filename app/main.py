@@ -12,7 +12,7 @@ from rich.console import Console
 import logging
 import torch
 from core.database import DBManager, embedder, util
-from core.translation import detect_language
+from core.translation import detect_language, translate_to_native
 
 api = FastAPI(title="Above RAG System API")
 api.mount("/static", StaticFiles(directory="static"), name="static")
@@ -139,6 +139,9 @@ async def handle_query(req: QueryRequest):
 
     # If cache hit, return immediately!
     if cache_hit_response:
+        #TRanslate the cache hit response to detected language
+        if detected_language.lower() not in ['en', 'english']:
+            cache_hit_response = await translate_to_native(cache_hit_response, detected_language)
         processing_time = time.time() - query_received_at
         updated_history = req.history + [f"Q: {req.query}", f"A: {cache_hit_response}"]
         

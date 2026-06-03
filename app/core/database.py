@@ -4,7 +4,7 @@ from sentence_transformers import SentenceTransformer, util
 
 SURREAL_URL = os.environ.get("SURREAL_URL", "ws://host.docker.internal:8000/rpc")
 NAMESPACE, DATABASE = 'insights_system', 'production'
-embedder = SentenceTransformer('BAAI/bge-small-en-v1.5', device='cpu')
+embedder = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2', device='cpu')
 
 class DBManager:
     def __init__(self):
@@ -87,6 +87,8 @@ class DBManager:
             # print('#'*50)
             # print(results)
             
+            
+            # Logic for checking duplicate retrieved data 
             unique_chunks = []
             seen_embeddings = []
             
@@ -104,7 +106,7 @@ class DBManager:
                     unique_chunks.append(f"[{len(unique_chunks)+1}] SOURCE_ID: {item.get('id')}\nSUMMARY: {text}")
                     seen_embeddings.append(chunk_vec)
                     
-                if len(unique_chunks) >= 3:
+                if len(unique_chunks) >= 5:
                     break        
             
             return unique_chunks
@@ -124,10 +126,29 @@ class DBManager:
             results = conn.query(query_str, {"qvec": vec, "user_id": user_id})
             data = results if results else []
             
-            ctx_list, seen = [], set()
-            for i, item in enumerate(data, 1):
+            # vector based deduplication logic
+            unique_facts = []
+            seen_embeddings = []
+            
+            for item in data:
                 desc = item.get('description')
-                if desc and desc not in seen:
-                    ctx_list.append(f"[{i}] Fact_ID: {item.get('id')}\nDescription: {desc}")
-                    seen.add(desc)
-            return "\n\n".join(ctx_list) if ctx_list else "No specific facts found."
+                if not desc:
+                    continue
+            
+                chunk_vec = embedder.encode(desc)
+                    
+                is_duplicate = False
+                for prev_vec in seen_embeddings:
+                    # Using the same 0.95 cosine similarity threshold
+                    if util.cos_sim(chunk_vec, prev_vec) > 0.95:
+                        is_duplicate = True
+                        break  
+                
+                if not is_duplicate:
+                        unique_facts.append(f"[{len(unique_facts)+1}] Fact_ID: {item.get('id')}\nDescription: {desc}")
+                        seen_embeddings.append(chunk_vec)
+                
+                if len(unique_facts) >= 10:
+                    break
+                
+            return "\n\n".join(unique_facts) if unique_facts else "No specific facts found."                  
