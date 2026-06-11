@@ -90,7 +90,7 @@ def save_session_to_csv(user_id: str, session_id: str, chat_id: str, history_dat
             
     return filepath
 
-def log_step_to_csv(state, node_name, prompt, response):
+def log_step_to_csv(state, node_name, prompt, english_response, native_response):
     """
     Logs the full pipeline step (Query, Reformulation, Prompt, Response, etc) 
     to pipeline_logs.csv inside the user session folder.
@@ -109,7 +109,7 @@ def log_step_to_csv(state, node_name, prompt, response):
         if not file_exists:
             writer.writerow([
                 "timestamp", "node", "original_query", "translated_q", "reformed_query", 
-                "intent", "metadata", "prompt", "final_response", "latencies", "resources"
+                "intent", "metadata", "prompt", "english_response", "native_response", "latencies", "resources"
             ])
         writer.writerow([
             simple_time,
@@ -120,7 +120,8 @@ def log_step_to_csv(state, node_name, prompt, response):
             state.get('category', ''),
             str(state.get('metadata', {})),
             prompt,
-            response,
+            english_response,
+            native_response,
             latencies,
             get_process_resources()
         ])

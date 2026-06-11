@@ -31,6 +31,7 @@ class PipelineState(TypedDict):
     language: str
     english_question: str
     english_response: str
+    prompt: str
 
 # --- NODES ---
 
@@ -64,15 +65,22 @@ async def translate_out_node(state: PipelineState):
     session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
     native_file = os.path.join(session_dir, "native_history.txt")
     
+    english_response = state.get('response', '')
+    
     if lang.lower() in ['en','english']:
         with open(native_file, "a", encoding="utf-8") as f:
             f.write(f"Q: {state['original_query']}\nA: {state['response']}\n")
             
         new_latencies = {**state.get('latencies',{}), "translate_out": time.time() - start}
+        
+        # --- ADD LOGGING CALL HERE ---
+        log_state = {**state, "latencies": new_latencies}
+        log_step_to_csv(state=log_state, node_name=state.get('category', 'translate_out'), prompt=state.get('prompt', 'N/A'), english_response=english_response, native_response=english_response)
                    
-        return{
-            "english_response": state['response'],
-            "latencies": {**state.get('latencies',{}), "translate_out": time.time() - start}            
+        return {
+            "english_response": english_response,
+            "response": english_response,
+            "latencies": new_latencies            
         }
             
     translated_res = await translate_to_native(state['response'], lang)
@@ -81,9 +89,19 @@ async def translate_out_node(state: PipelineState):
         f.write(f"Q: {state['original_query']}\nA: {translated_res}\n")                              
     
     new_latencies = {**state.get("latencies",{}), "translate_out": time.time() - start}
-        
+    
+    # --- ADD LOGGING CALL HERE ---
+    log_state = {**state, "latencies": new_latencies}
+    log_step_to_csv(
+        state=log_state, 
+        node_name=state.get('category', 'translate_out'), 
+        prompt=state.get('prompt', 'N/A'), 
+        english_response=english_response, 
+        native_response=translated_res
+    )        
+    
     return {
-        "english_response": state['response'],
+        "english_response": english_response,
         "response": translated_res,
         "latencies": new_latencies
     }
@@ -245,8 +263,6 @@ async def llm_simple_node(state: PipelineState):
     response = (await llm.ainvoke(prompt)).strip()
     
     new_latencies = {**state.get("latencies", {}), "llm-response": time.time() - start}
-    log_state = {**state, "latencies": new_latencies}
-    log_step_to_csv(log_state, "llm_simple", prompt, response)
     
     session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
     history_file = os.path.join(session_dir, "english_history.txt")
@@ -254,6 +270,7 @@ async def llm_simple_node(state: PipelineState):
 
     return {
         "response": response, 
+        "prompt": prompt,
         "latencies": new_latencies
     }
    
@@ -265,9 +282,6 @@ async def refusal_node(state: PipelineState):
     
     new_latencies = {**state.get("latencies", {}), "refusal": time.time() - start}
     
-    log_state = {**state, "latencies": new_latencies}
-    log_step_to_csv(log_state, "refusal", "N/A (Input Guardrail Triggered)", response)
-    
     session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
     history_file = os.path.join(session_dir, "english_history.txt")
     with open(history_file, "a") as f: 
@@ -275,6 +289,7 @@ async def refusal_node(state: PipelineState):
     
     return {
         "response": response, 
+        "prompt": "N/A (Input Guardrail Triggered)",
         "latencies": new_latencies
     }
 
@@ -306,14 +321,14 @@ async def llm_factual_node(state: PipelineState):
     response = (await llm.ainvoke(prompt)).strip()
     
     new_latencies = {**state.get("latencies", {}), "llm-response": time.time() - start}
-    log_state = {**state, "latencies": new_latencies}
-    log_step_to_csv(log_state, "llm_factual", prompt, response)
+    
     session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
     history_file = os.path.join(session_dir, "english_history.txt")
     with open(history_file, "a") as f: f.write(f"Q: {state['question']}\nA: {response}\n")
   
     return {
         "response": response, 
+        "prompt": prompt,
         "latencies": new_latencies
     }
     
@@ -347,15 +362,13 @@ async def llm_rag_node(state: PipelineState):
     
     new_latencies = {**state.get("latencies", {}), "llm-response": time.time() - start}
 
-    
-    log_state = {**state, "latencies": new_latencies}
-    log_step_to_csv(log_state, "llm_rag", prompt, response)
     session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
     history_file = os.path.join(session_dir, "english_history.txt")
     with open(history_file, "a") as f: f.write(f"Q: {state['question']}\nA: {response}\n")
     
     return {
-        "response": response, 
+        "response": response,
+        "prompt": prompt, 
         "latencies": new_latencies
     }
     

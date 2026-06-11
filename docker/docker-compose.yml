@@ -36,7 +36,7 @@ services:
           --quantization awq \
           --dtype float16 \
           --max-model-len 8192 \
-          --max-num-seqs 1 \
+          --max-num-seqs 20 \
           --gpu-memory-utilization $${UTIL} \
           --enforce-eager
 

@@ -6,6 +6,13 @@ COPY requirements.txt .
 # FIX: Added a massive timeout threshold so large Nvidia/PyTorch wheels don't fail
 RUN pip install --default-timeout=1000 --no-cache-dir -r requirements.txt
 
+RUN mkdir -p /models
+
+RUN python3 -m ctranslate2.converters.transformers \
+    --model facebook/nllb-200-distilled-600M \
+    --output_dir /models/nllb_ctranslate2 \
+    --quantization int8
+
 COPY . /app
 
 CMD ["uvicorn", "main:api", "--host", "0.0.0.0", "--port", "9001"]
