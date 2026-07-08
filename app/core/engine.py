@@ -28,7 +28,8 @@ class PipelineState(TypedDict):
     latencies: Dict
     reformulated_query: str
     chat_id: str
-    language: str
+    input_language: str
+    output_language: str
     english_question: str
     english_response: str
     prompt: str
@@ -37,7 +38,7 @@ class PipelineState(TypedDict):
 
 async def translate_in_node(state: PipelineState):
     start = time.time()
-    lang = state.get("language","English").strip()
+    lang = state.get("input_language","English").strip()
     text = state['question']
     
     if lang.lower() in ['en','english']:
@@ -59,7 +60,7 @@ async def translate_in_node(state: PipelineState):
 
 async def translate_out_node(state: PipelineState):
     start = time.time()
-    lang = state.get("language","English").strip()
+    lang = state.get("output_language","English").strip()
     
     # Save Native History to txt
     session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
@@ -71,27 +72,31 @@ async def translate_out_node(state: PipelineState):
         with open(native_file, "a", encoding="utf-8") as f:
             f.write(f"Q: {state['original_query']}\nA: {state['response']}\n")
             
-        new_latencies = {**state.get('latencies',{}), "translate_out": time.time() - start}
+        final_latencies = {**state.get('latencies',{}), "translate_out": time.time() - start}
         
         # --- ADD LOGGING CALL HERE ---
-        log_state = {**state, "latencies": new_latencies}
+        log_state = {**state, "latencies": final_latencies}
         log_step_to_csv(state=log_state, node_name=state.get('category', 'translate_out'), prompt=state.get('prompt', 'N/A'), english_response=english_response, native_response=english_response)
                    
         return {
             "english_response": english_response,
             "response": english_response,
-            "latencies": new_latencies            
+            "latencies": final_latencies            
         }
             
-    translated_res = await translate_to_native(state['response'], lang)
+    translated_res = await translate_to_native(english_response, lang)
+    
+    if "out_of_bounds" not in category:
+        with open(native_file, "a", encoding="utf-8") as f:
+            f.write(f"Q: {state['original_query']}\nA: {translated_res}\n")
     
     with open(native_file, "a", encoding="utf-8") as f:
         f.write(f"Q: {state['original_query']}\nA: {translated_res}\n")                              
     
-    new_latencies = {**state.get("latencies",{}), "translate_out": time.time() - start}
+    final_latencies = {**state.get("latencies",{}), "translate_out": time.time() - start}
     
     # --- ADD LOGGING CALL HERE ---
-    log_state = {**state, "latencies": new_latencies}
+    log_state = {**state, "latencies": final_latencies}
     log_step_to_csv(
         state=log_state, 
         node_name=state.get('category', 'translate_out'), 
@@ -259,20 +264,32 @@ async def llm_simple_node(state: PipelineState):
         history_str = "This is the first query of conversation. No history available."
     else:
         history_str = "\n".join(messages)
+    # prompt = f"<s>[INST] You are a helpful assistant.You have to answer general and casual queries of the user.Answer concisely.\nRespond to only casual queries.Do not perform complex tasks like code generation.If you are instructed to perform specific task like generate code, just respond: '''Sorry I am just for casual chat and not for specific complex tasks'''. \n\n History: {history_str}\n\nUser: {state['question']}\nAssistant: [/INST]"
     prompt = f"<s>[INST] You are a helpful assistant.You have to answer general and casual queries of the user.Answer concisely.\nRespond to only casual queries.Do not perform complex tasks like code generation.If you are instructed to perform specific task like generate code, just respond: '''Sorry I am just for casual chat and not for specific complex tasks'''. \n\n History: {history_str}\n\nUser: {state['question']}\nAssistant: [/INST]"
     response = (await llm.ainvoke(prompt)).strip()
     
     new_latencies = {**state.get("latencies", {}), "llm-response": time.time() - start}
     
-    session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
-    history_file = os.path.join(session_dir, "english_history.txt")
-    with open(history_file, "a") as f: f.write(f"Q: {state['question']}\nA: {response}\n")
-
-    return {
+    # session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
+    # history_file = os.path.join(session_dir, "english_history.txt")
+    # with open(history_file, "a") as f: f.write(f"Q: {state['question']}\nA: {response}\n")
+    state_updates = {
         "response": response, 
         "prompt": prompt,
         "latencies": new_latencies
     }
+    
+    if "Sorry I am just for casual chat" in response:
+        # Change category to out_of_bounds to notify translate_out and main.py
+        state_updates["category"] = "out_of_bounds"
+    else:
+        # Only write to history if it is a legitimate casual conversation
+        session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
+        history_file = os.path.join(session_dir, "english_history.txt")
+        with open(history_file, "a") as f: 
+            f.write(f"Q: {state['question']}\nA: {response}\n")
+
+    return state_updates
    
 async def refusal_node(state: PipelineState):
     start = time.time()
@@ -282,10 +299,10 @@ async def refusal_node(state: PipelineState):
     
     new_latencies = {**state.get("latencies", {}), "refusal": time.time() - start}
     
-    session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
-    history_file = os.path.join(session_dir, "english_history.txt")
-    with open(history_file, "a") as f: 
-        f.write(f"Q: {state['question']}\nA: {response}\n")
+    # session_dir = get_session_path(state['user_id'], state['session_id'], state['chat_id'])
+    # history_file = os.path.join(session_dir, "english_history.txt")
+    # with open(history_file, "a") as f: 
+    #     f.write(f"Q: {state['question']}\nA: {response}\n")
     
     return {
         "response": response, 

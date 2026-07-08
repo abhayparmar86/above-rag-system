@@ -1,12 +1,48 @@
 import csv
 import os
+import logging
+import sys
 import psutil
 import pynvml
 from datetime import datetime
 import json
 from zoneinfo import ZoneInfo
 
+# ---------------------------------------------------------------------------
+# System logging — levels + persistent file, separate from the CSV metrics
+# below. Console shows LOG_LEVEL and above; the file captures everything,
+# so a quiet demo terminal doesn't mean a quiet audit trail.
+# ---------------------------------------------------------------------------
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+SYSTEM_LOG_PATH = "/logs/system.log"
+
+def setup_logging():
+    os.makedirs(os.path.dirname(SYSTEM_LOG_PATH), exist_ok=True)
+
+    formatter = logging.Formatter(
+        "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(LOG_LEVEL)
+    console_handler.setFormatter(formatter)
+
+    file_handler = logging.FileHandler(SYSTEM_LOG_PATH)
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
+
+def get_logger(name: str) -> logging.Logger:
+    return logging.getLogger(name)
+
+# ---------------------------------------------------------------------------
 # Initialize GPU monitoring
+# ---------------------------------------------------------------------------
 try:
     pynvml.nvmlInit()
     GPU_AVAILABLE = True

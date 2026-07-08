@@ -1,323 +1,3 @@
-<!-- <!DOCTYPE html>
-<html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Above RAG System</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        body {
-            background-color: #0f172a;
-            color: #f8fafc;
-            font-family: 'Inter', sans-serif;
-        }
-
-        .ai-bubble {
-            background: #1e293b;
-            border-left: 4px solid #3b82f6;
-            border-radius: 0 12px 12px 12px;
-        }
-
-        .user-bubble {
-            background: #2563eb;
-            color: white;
-            border-radius: 12px 12px 0 12px;
-        }
-
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: #334155;
-            border-radius: 4px;
-        }
-    </style>
-</head>
-
-<body class="h-screen flex overflow-hidden">
-
-    <div id="auth-modal" class="fixed inset-0 bg-slate-900/80 z-50 flex justify-center items-center backdrop-blur-sm">
-        <div class="bg-slate-800 p-8 rounded-xl shadow-2xl w-96 border border-slate-700">
-            <h2 class="text-2xl font-bold mb-6 flex items-center gap-3"><i class="fas fa-fingerprint text-blue-500"></i>
-                Authentication</h2>
-            <input type="text" id="auth_input" placeholder="Enter User ID (e.g., user_001)"
-                class="w-full bg-slate-900 border border-slate-600 rounded p-3 text-white outline-none focus:border-blue-500 transition mb-4">
-            <p id="auth-error" class="text-red-400 text-sm hidden mb-4">User not found in system.</p>
-            <button id="auth-btn" onclick="validateUser()"
-                class="w-full bg-blue-600 hover:bg-blue-500 text-white p-3 rounded font-semibold transition">Authenticate</button>
-        </div>
-    </div>
-
-    <div id="sidebar"
-        class="w-72 bg-slate-900 border-r border-slate-800 flex flex-col blur-sm transition-all duration-300">
-        <div class="p-4 border-b border-slate-800 flex justify-between items-center">
-            <div class="flex items-center gap-3 text-blue-400 font-bold text-lg">
-                <i class="fas fa-network-wired"></i> Above RAG System
-            </div>
-        </div>
-        <div class="p-4">
-            <button onclick="createNewChat()"
-                class="w-full bg-slate-800 hover:bg-slate-700 text-sm p-3 rounded flex items-center gap-2 transition border border-slate-700">
-                <i class="fas fa-plus"></i> New Investigation
-            </button>
-        </div>
-        <div id="chat-list" class="flex-1 overflow-y-auto p-2">
-        </div>
-        <div class="p-4 border-t border-slate-800 flex justify-between items-center bg-slate-800/50">
-            <div class="flex items-center gap-2 text-sm text-slate-300">
-                <i class="fas fa-user-circle text-slate-400 text-xl"></i>
-                <span id="display_user_id">Loading...</span>
-            </div>
-            <button onclick="logout()" class="text-slate-400 hover:text-red-400 transition" title="Logout"><i
-                    class="fas fa-power-off"></i></button>
-        </div>
-    </div>
-
-    <div id="main-area" class="flex-1 flex flex-col bg-slate-900/50 blur-sm transition-all duration-300">
-        <div class="h-16 border-b border-slate-800 flex items-center px-6 justify-between bg-slate-900/80">
-            <h1 class="text-lg font-semibold text-slate-200">Retrieval Augmented Pipeline</h1>
-            <div class="flex gap-4 text-xs text-slate-500 font-mono">
-                <span><i class="fas fa-circle text-green-500 text-[10px]"></i> vLLM Active</span>
-                <span><i class="fas fa-database text-blue-500 text-[10px]"></i> SurrealDB Connected</span>
-            </div>
-        </div>
-
-        <div id="chat-container" class="flex-1 overflow-y-auto p-6 space-y-6">
-        </div>
-
-        <div class="p-6 bg-slate-900 border-t border-slate-800">
-            <div class="max-w-4xl mx-auto relative">
-                <input type="text" id="query" disabled placeholder="Query the knowledge graph..."
-                    onkeypress="if(event.key === 'Enter') sendMsg()"
-                    class="w-full bg-slate-800 border border-slate-700 rounded-lg pl-4 pr-12 py-4 text-white focus:outline-none focus:border-blue-500 transition shadow-inner">
-                <button id="send-btn" disabled onclick="sendMsg()"
-                    class="absolute right-2 top-2 bottom-2 aspect-square bg-blue-600 hover:bg-blue-500 rounded text-white transition disabled:opacity-50">
-                    <i class="fas fa-arrow-up"></i>
-                </button>
-            </div>
-            <p class="text-center text-slate-500 text-xs mt-3">AI responses are generated based on strictly isolated
-                internal memories.</p>
-        </div>
-    </div>
-
-    <script>
-        let chatCounter = 1;
-        let currentUser = null, activeSession = null, sessions = {};
-        let isGenerating = false;
-
-        const genId = () => Math.random().toString(36).substr(2, 9);
-        let browserSessionId = sessionStorage.getItem('browser_session');
-        if (!browserSessionId) {
-            browserSessionId = 'session_' + Date.now();
-            sessionStorage.setItem('browser_session', browserSessionId);
-        }
-
-        async function validateUser() {
-            const id = document.getElementById('auth_input').value.trim();
-            if (!id) return;
-            document.getElementById('auth-btn').innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
-            try {
-                const res = await fetch(`/verify/${id}`);
-                if (!res.ok) throw new Error();
-                currentUser = id;
-                document.getElementById('auth-modal').style.display = 'none';
-                document.getElementById('sidebar').classList.remove('blur-sm');
-                document.getElementById('main-area').classList.remove('blur-sm');
-                document.getElementById('display_user_id').innerText = currentUser;
-                document.getElementById('query').disabled = false;
-                document.getElementById('send-btn').disabled = false;
-                sessions = {};
-                createNewChat();
-            } catch {
-                document.getElementById('auth-error').classList.remove('hidden');
-                document.getElementById('auth-btn').innerHTML = 'Authenticate';
-            }
-        }
-
-        async function logout() {
-            if (isGenerating) {
-                alert("Please wait for the current response to finish before logging out.");
-                return;
-            }
-            await archiveAllSessions();
-            currentUser = null;
-            sessions = {};
-            location.reload();
-        }
-
-        function createNewChat() {
-            if (isGenerating) return; // UI Lock
-            const chatName = `Chat ${chatCounter}`;
-            const id = `chat_${chatCounter}_${Date.now()}`;
-            sessions[id] = { name: `New Query`, ui_history: [], english_history: [], log_data: [] };
-            activeSession = id;
-            chatCounter++;
-            renderSidebar(); renderChat();
-        }
-
-        function switchSession(id) {
-            if (isGenerating) return; // UI Lock
-            activeSession = id;
-            renderSidebar();
-            renderChat();
-        }
-
-        // Renamed and updated logic: Delete ALWAYS saves, then creates a fresh window.
-        async function deleteAndSaveSession(id, event) {
-            if (event) event.stopPropagation();
-            if (isGenerating) {
-                alert("Cannot delete a chat while AI is generating.");
-                return;
-            }
-
-            // Save before deleting
-            if (sessions[id].log_data.length > 0) {
-                await fetch('/session/close', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    keepalive: true,
-                    body: JSON.stringify({
-                        user_id: currentUser,
-                        session_id: browserSessionId,
-                        chat_id: id,
-                        history: sessions[id].log_data
-                    })
-                });
-            }
-            delete sessions[id];
-            createNewChat(); // Always force a new chat window
-        }
-
-        async function archiveAllSessions() {
-            const keys = Object.keys(sessions);
-            for (let id of keys) {
-                if (sessions[id].log_data.length > 0) {
-                    await fetch('/session/close', {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
-                        body: JSON.stringify({ user_id: currentUser, session_id: browserSessionId, chat_id: id, history: sessions[id].log_data })
-                    });
-                }
-            }
-        }
-
-        window.addEventListener('beforeunload', () => { archiveAllSessions(); });
-
-        function renderSidebar() {
-            document.getElementById('chat-list').innerHTML = Object.entries(sessions).reverse().map(([id, data]) => `
-                <div onclick="switchSession('${id}')" class="p-3 rounded-lg cursor-pointer flex justify-between items-center ${id === activeSession ? 'bg-[#334155] border-l-4 border-blue-500' : 'hover:bg-[#2a364a] border-l-4 border-transparent'} transition-all mb-1 group">
-                    <span class="truncate w-40 text-slate-300 text-sm font-medium pl-2">${data.name}</span>
-                    <div class="flex gap-2">
-                        <i class="fas fa-trash-alt text-slate-500 hover:text-red-400 transition hidden group-hover:block" title="Save & Delete" onclick="deleteAndSaveSession('${id}', event)"></i>
-                    </div>
-                </div>`).join('');
-        }
-
-        function renderChat() {
-            if (!sessions[activeSession]) return;
-            document.getElementById('chat-container').innerHTML = sessions[activeSession].ui_history.map(msg => {
-                if (msg.startsWith("User: ")) return createBubble(msg.replace("User: ", ""), true);
-                let p = msg.split("||METRICS||");
-                return createBubble(p[0].replace("AI: ", ""), false, p[1]);
-            }).join('');
-            scrollToBottom();
-        }
-
-        function createBubble(text, isUser, metrics = null) {
-            let styleClass = isUser ? 'user-bubble self-end' : 'ai-bubble self-start';
-            let html = `<div class="flex flex-col max-w-[85%] ${isUser ? 'self-end' : 'self-start'} mb-2"><div class="px-6 py-4 ${styleClass} shadow-md text-[15px] leading-relaxed whitespace-pre-wrap">${text}</div>`;
-            if (metrics) {
-                try {
-                    let m = JSON.parse(metrics);
-                    html += `<div class="text-[11px] text-slate-500 mt-2 font-mono ${isUser ? 'text-right' : 'text-left'} flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}">
-                        <span title="Wait Time"><i class="fas fa-hourglass-start text-slate-600"></i> ${m.wait_time}s</span>
-                        <span title="Processing Time"><i class="fas fa-microchip text-slate-600"></i> ${m.processing_time}s</span>
-                        <span title="Resource State">[${m.resources}]</span>
-                    </div>`;
-                } catch (e) { }
-            }
-            return html + `</div>`;
-        }
-
-        function scrollToBottom() {
-            const container = document.getElementById('chat-container');
-            container.scrollTop = container.scrollHeight;
-        }
-
-        async function sendMsg() {
-            if (isGenerating) return;
-
-            const input = document.getElementById('query');
-            const query = input.value.trim();
-            if (!query) return;
-
-            const query_id = `UI-${Date.now().toString().slice(-6)}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
-
-            isGenerating = true;
-            // Note: input remains enabled so user can type, but send is blocked
-            document.getElementById('send-btn').disabled = true;
-            document.getElementById('send-btn').innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
-
-            sessions[activeSession].ui_history.push(`User: ${query}`);
-            
-            if (sessions[activeSession].ui_history.length === 1) sessions[activeSession].name = query.substring(0, 25) + "...";
-
-            let string_history = sessions[activeSession].ui_history.map(msg => msg.split("||METRICS||")[0]);
-
-            renderSidebar(); renderChat();
-            input.value = '';
-
-            try {
-                const res = await fetch('/rag', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ user_id: currentUser, session_id: browserSessionId, chat_id: activeSession, query: query, query_id: query_id, history: string_history })
-                });
-                const data = await res.json();
-
-                if (!res.ok) throw new Error(data.detail || "Server Error");
-
-                sessions[activeSession].ui_history.push(`AI: ${data.response}||METRICS||${JSON.stringify(data.metrics)}`);
-
-                sessions[activeSession].log_data.push({
-                    question: query,
-                    response: data.response,
-                    query_asked_time: data.metrics.query_asked_time,
-                    wait_time: data.metrics.wait_time,
-                    processing_time: data.metrics.processing_time,
-                    response_sent_time: data.metrics.response_sent_time,
-                    resources: data.metrics.resources
-                });
-
-                renderChat();
-            } catch (err) {
-                alert(err.message);
-                sessions[activeSession].ui_history.pop();
-                renderChat();
-            }
-            finally {
-                isGenerating = false;
-                document.getElementById('send-btn').disabled = false;
-                document.getElementById('send-btn').innerHTML = '<i class="fas fa-arrow-up"></i>';
-                setTimeout(() => document.getElementById('query').focus(), 100);
-            }
-        }
-    </script>
-</body>
-
-</html> -->
-
-
-
-
-
-
-
-
-
-
-
 <!DOCTYPE html>
 <html lang="en">
 
@@ -354,6 +34,29 @@
             background: #334155;
             border-radius: 4px;
         }
+
+        /* Mic button recording pulse animation */
+        @keyframes pulse-red {
+
+            0%,
+            100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+            }
+
+            50% {
+                box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+            }
+        }
+
+        .recording {
+            background-color: #ef4444 !important;
+            animation: pulse-red 1.2s infinite;
+        }
+
+        /* Speaker button active state */
+        .speaking {
+            color: #ef4444 !important;
+        }
     </style>
 </head>
 
@@ -399,22 +102,62 @@
     <div id="main-area" class="flex-1 flex flex-col bg-slate-900/50 blur-sm transition-all duration-300">
         <div class="h-16 border-b border-slate-800 flex items-center px-6 justify-between bg-slate-900/80">
             <h1 class="text-lg font-semibold text-slate-200">Retrieval Augmented Pipeline</h1>
-            <div class="flex gap-4 text-xs text-slate-500 font-mono">
-                <span><i class="fas fa-circle text-green-500 text-[10px]"></i> vLLM Active</span>
-                <span><i class="fas fa-database text-blue-500 text-[10px]"></i> SurrealDB Connected</span>
+            <div class="flex items-center gap-4">
+                <!-- Per-chat language controls. Default = Auto-detect. Changing these only
+                     affects the currently active chat, not other chats or a global default. -->
+                <div class="flex items-center gap-2 text-xs">
+                    <label class="text-slate-500 flex items-center gap-1"
+                        title="Language the input is expected in — also used as the Whisper STT hint">
+                        <i class="fas fa-keyboard text-slate-600"></i> In
+                    </label>
+                    <select id="input-lang-select" onchange="onLanguageSelectChange()"
+                        class="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-slate-300 text-xs focus:outline-none focus:border-blue-500">
+                        <option value="auto">Auto-detect</option>
+                    </select>
+                    <label class="text-slate-500 flex items-center gap-1 ml-1"
+                        title="Language the response should be generated and read aloud in">
+                        <i class="fas fa-comment-dots text-slate-600"></i> Out
+                    </label>
+                    <select id="output-lang-select" onchange="onLanguageSelectChange()"
+                        class="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-slate-300 text-xs focus:outline-none focus:border-blue-500">
+                        <option value="auto">Auto-detect</option>
+                    </select>
+                </div>
+                <div class="flex gap-4 text-xs text-slate-500 font-mono">
+                    <span><i class="fas fa-circle text-green-500 text-[10px]"></i> vLLM Active</span>
+                    <span><i class="fas fa-database text-blue-500 text-[10px]"></i> SurrealDB Connected</span>
+                </div>
             </div>
+        </div>
+
+        <!-- Soft-fallback warning: shown when auto-detect finds a language outside our
+             supported set. We still process the query (as English) rather than error out. -->
+        <div id="language-warning-banner"
+            class="hidden bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-xs px-6 py-2 flex items-center justify-between">
+            <span><i class="fas fa-triangle-exclamation mr-2"></i><span id="language-warning-text"></span></span>
+            <button onclick="document.getElementById('language-warning-banner').classList.add('hidden')"
+                class="text-amber-400 hover:text-amber-200 ml-4"><i class="fas fa-xmark"></i></button>
         </div>
 
         <div id="chat-container" class="flex-1 overflow-y-auto p-6 space-y-6">
         </div>
 
         <div class="p-6 bg-slate-900 border-t border-slate-800">
-            <div class="max-w-4xl mx-auto relative">
+            <div class="max-w-4xl mx-auto relative flex items-center gap-2">
+
                 <input type="text" id="query" disabled placeholder="Query the knowledge graph..."
                     onkeypress="if(event.key === 'Enter') sendMsg()"
-                    class="w-full bg-slate-800 border border-slate-700 rounded-lg pl-4 pr-12 py-4 text-white focus:outline-none focus:border-blue-500 transition shadow-inner">
+                    class="flex-1 bg-slate-800 border border-slate-700 rounded-lg pl-4 pr-4 py-4 text-white focus:outline-none focus:border-blue-500 transition shadow-inner">
+
+                <!-- Microphone button for voice input (STT) -->
+                <button id="mic-btn" disabled title="Voice Input" onclick="toggleRecording()"
+                    class="h-[52px] aspect-square bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 hover:text-white transition disabled:opacity-40 flex items-center justify-center">
+                    <i class="fas fa-microphone"></i>
+                </button>
+
+                <!-- Send button -->
                 <button id="send-btn" disabled onclick="sendMsg()"
-                    class="absolute right-2 top-2 bottom-2 aspect-square bg-blue-600 hover:bg-blue-500 rounded text-white transition disabled:opacity-50">
+                    class="h-[52px] aspect-square bg-blue-600 hover:bg-blue-500 rounded-lg text-white transition disabled:opacity-50 flex items-center justify-center">
                     <i class="fas fa-arrow-up"></i>
                 </button>
             </div>
@@ -424,9 +167,64 @@
     </div>
 
     <script>
+        // =====================================================================
+        // APPLICATION STATE
+        // =====================================================================
         let chatCounter = 1;
         let currentUser = null, activeSession = null, sessions = {};
         let isGenerating = false;
+
+        // =====================================================================
+        // LANGUAGE SUPPORT — populated from GET /languages (single source of
+        // truth shared with the backend, no hardcoded duplicate list here).
+        // =====================================================================
+        let SUPPORTED_LANGUAGES = []; // [{name, bcp47, whisper}, ...]
+
+        async function loadSupportedLanguages() {
+            try {
+                const res = await fetch('/languages');
+                const data = await res.json();
+                SUPPORTED_LANGUAGES = data.languages || [];
+            } catch (err) {
+                // Fail-soft: dropdowns just keep "Auto-detect" if this call fails.
+                console.warn('Could not load supported languages:', err);
+            }
+            const opts = SUPPORTED_LANGUAGES.map(l => `<option value="${l.name}">${l.name}</option>`).join('');
+            document.getElementById('input-lang-select').insertAdjacentHTML('beforeend', opts);
+            document.getElementById('output-lang-select').insertAdjacentHTML('beforeend', opts);
+        }
+
+        function getLocaleForLanguage(name) {
+            const match = SUPPORTED_LANGUAGES.find(l => l.name === name);
+            return match ? match.bcp47 : 'en-US';
+        }
+
+        // Reflect the ACTIVE chat's stored language settings onto the dropdowns.
+        // Each chat keeps its own input_language/output_language — switching chats
+        // must not leak one chat's language choice into another.
+        function syncLanguageDropdowns() {
+            const s = sessions[activeSession];
+            if (!s) return;
+            document.getElementById('input-lang-select').value = s.input_language || 'auto';
+            document.getElementById('output-lang-select').value = s.output_language || 'auto';
+        }
+
+        // User changed a dropdown -> save onto the active chat's session object only.
+        function onLanguageSelectChange() {
+            if (!sessions[activeSession]) return;
+            sessions[activeSession].input_language = document.getElementById('input-lang-select').value;
+            sessions[activeSession].output_language = document.getElementById('output-lang-select').value;
+        }
+
+        function showLanguageWarning(message) {
+            const banner = document.getElementById('language-warning-banner');
+            if (!message) {
+                banner.classList.add('hidden');
+                return;
+            }
+            document.getElementById('language-warning-text').innerText = message;
+            banner.classList.remove('hidden');
+        }
 
         const genId = () => Math.random().toString(36).substr(2, 9);
         let browserSessionId = sessionStorage.getItem('browser_session');
@@ -435,6 +233,194 @@
             sessionStorage.setItem('browser_session', browserSessionId);
         }
 
+        loadSupportedLanguages();
+
+        // =====================================================================
+        // SPEECH-TO-TEXT (STT) STATE
+        // =====================================================================
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
+        let speechRecognition = null;
+
+        // Live in-browser draft while recording
+        function startLiveDraft(input) {
+            const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognitionAPI) return;
+
+            const inputLang = sessions[activeSession]?.input_language;
+            speechRecognition = new SpeechRecognitionAPI();
+            speechRecognition.lang = (inputLang && inputLang !== 'auto') ? getLocaleForLanguage(inputLang) : 'en-US';
+            speechRecognition.continuous = true;
+            speechRecognition.interimResults = true;
+
+            speechRecognition.onresult = (event) => {
+                let draft = '';
+                for (let i = 0; i < event.results.length; i++) draft += event.results[i][0].transcript;
+                input.value = draft;
+            };
+            speechRecognition.onerror = () => { };
+
+            try {
+                speechRecognition.start();
+            } catch {
+                speechRecognition = null;
+            }
+        }
+
+        function stopLiveDraft() {
+            if (!speechRecognition) return;
+            speechRecognition.onresult = null;
+            speechRecognition.onerror = null;
+            speechRecognition.stop();
+            speechRecognition = null;
+        }
+
+        // =====================================================================
+        // FIXED Text-to-Speech (TTS) Engine — Start/Stop Explicit Logic
+        // =====================================================================
+        let currentSpeakingBtn = null;
+
+        function stopSpeaking() {
+            window.speechSynthesis.cancel(); // Forces hard reset on API engine
+            if (currentSpeakingBtn) {
+                currentSpeakingBtn.classList.remove('speaking');
+                currentSpeakingBtn.innerHTML = '<i class="fas fa-play text-xs"></i><span class="text-[11px]">Start</span>';
+                currentSpeakingBtn.title = 'Start playback from beginning';
+                currentSpeakingBtn = null;
+            }
+        }
+
+        function speakText(btn) {
+            // Securely decode text to avoid quote/newline syntax errors
+            const text = decodeURIComponent(btn.dataset.text);
+
+            // If the SAME button is clicked while it's speaking, stop it immediately
+            if (currentSpeakingBtn === btn) {
+                stopSpeaking();
+                return;
+            }
+
+            // If a different chat bubble was speaking, cut it off first
+            stopSpeaking();
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            // Match the voice locale to the language the response was actually generated in,
+            // so e.g. a Spanish response is read aloud with a Spanish voice, not English.
+            utterance.lang = btn.dataset.locale || 'en-US';
+
+            // Transform UI indicators to explicit "Stop" mode
+            btn.innerHTML = '<i class="fas fa-stop text-xs"></i><span class="text-[11px]">Stop</span>';
+            btn.classList.add('speaking');
+            btn.title = 'Stop playback';
+            currentSpeakingBtn = btn;
+
+            utterance.onend = () => {
+                if (currentSpeakingBtn === btn) stopSpeaking();
+            };
+
+            utterance.onerror = () => {
+                if (currentSpeakingBtn === btn) stopSpeaking();
+            };
+
+            // Cancel any hidden browser queues and trigger instant playback from the start
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.speak(utterance);
+        }
+
+        // =====================================================================
+        // MICROPHONE STT — Appending Mode Integration
+        // =====================================================================
+        async function toggleRecording() {
+            if (isRecording) {
+                stopLiveDraft();
+                mediaRecorder.stop();
+                return;
+            }
+
+            let stream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            } catch (err) {
+                alert('Microphone access denied. Please allow microphone access and try again.');
+                return;
+            }
+
+            audioChunks = [];
+            mediaRecorder = new MediaRecorder(stream);
+
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) audioChunks.push(e.data);
+            };
+
+            mediaRecorder.onstop = async () => {
+                stream.getTracks().forEach(t => t.stop());
+
+                isRecording = false;
+                const micBtn = document.getElementById('mic-btn');
+                micBtn.classList.remove('recording');
+                micBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+                micBtn.title = 'Voice Input';
+
+                const input = document.getElementById('query');
+                const previousValue = input.dataset.preMicValue || '';
+                input.value = '🎙️ Transcribing...';
+                input.disabled = true;
+
+                try {
+                    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const formData = new FormData();
+                    formData.append('audio', blob, 'recording.webm');
+                    formData.append('language', sessions[activeSession]?.input_language || 'auto');
+
+                    const res = await fetch('/stt', { method: 'POST', body: formData });
+                    if (!res.ok) throw new Error(`STT server error: ${res.status}`);
+
+                    const data = await res.json();
+                    const transcript = data.transcript || '';
+
+                    if (!transcript) {
+                        input.value = previousValue;
+                        alert("Couldn't hear anything clearly. Please try again.");
+                    } else {
+                        // Append text safely with spacing rules
+                        const newValue = previousValue.trim()
+                            ? previousValue.trim() + " " + transcript.trim()
+                            : transcript.trim();
+
+                        input.value = newValue;
+                        input.focus();
+                        input.setSelectionRange(newValue.length, newValue.length);
+                    }
+                } catch (err) {
+                    input.value = previousValue;
+                    alert('Transcription failed: ' + err.message);
+                } finally {
+                    input.disabled = false;
+                    delete input.dataset.preMicValue;
+                }
+            };
+
+            mediaRecorder.start();
+            isRecording = true;
+
+            const input = document.getElementById('query');
+            input.dataset.preMicValue = input.value;
+            input.value = '';
+            input.disabled = true;
+            startLiveDraft(input);
+
+            const micBtn = document.getElementById('mic-btn');
+            micBtn.classList.add('recording');
+            micBtn.innerHTML = '<i class="fas fa-stop"></i>';
+            micBtn.title = 'Stop recording';
+        }
+
+        // =====================================================================
+        // CORE WORKFLOW PIPELINE FUNCTIONS
+        // =====================================================================
         async function validateUser() {
             const id = document.getElementById('auth_input').value.trim();
             if (!id) return;
@@ -449,6 +435,7 @@
                 document.getElementById('display_user_id').innerText = currentUser;
                 document.getElementById('query').disabled = false;
                 document.getElementById('send-btn').disabled = false;
+                document.getElementById('mic-btn').disabled = false;
                 sessions = {};
                 createNewChat();
             } catch {
@@ -462,38 +449,64 @@
                 alert("Please wait for the current response to finish before logging out.");
                 return;
             }
+            stopSpeaking();
             await archiveAllSessions();
             currentUser = null;
             sessions = {};
             location.reload();
         }
 
+        function logSessionEvent(eventType, chatId, chatName = '') {
+            fetch('/log/session-event', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: currentUser,
+                    session_id: browserSessionId,
+                    chat_id: chatId,
+                    event_type: eventType,
+                    chat_name: chatName
+                })
+            }).catch(() => { });
+        }
+
         function createNewChat() {
-            if (isGenerating) return; // UI Lock
+            if (isGenerating || isRecording) return;
             const chatName = `Chat ${chatCounter}`;
             const id = `chat_${chatCounter}_${Date.now()}`;
-            sessions[id] = { name: `New Query`, ui_history: [], english_history: [], log_data: [] };
+            sessions[id] = { name: `New Query`, ui_history: [], english_history: [], log_data: [], input_language: 'auto', output_language: 'auto' };
             activeSession = id;
             chatCounter++;
+            logSessionEvent('create', id, chatName);
             renderSidebar(); renderChat();
+            syncLanguageDropdowns();
+            showLanguageWarning(null);
         }
 
         function switchSession(id) {
-            if (isGenerating) return; // UI Lock
+            if (isGenerating || isRecording) return;
+            stopSpeaking();
             activeSession = id;
+            logSessionEvent('switch', id, sessions[id]?.name);
             renderSidebar();
             renderChat();
+            syncLanguageDropdowns();
+            showLanguageWarning(null);
         }
 
-        // Renamed and updated logic: Delete ALWAYS saves, then creates a fresh window.
         async function deleteAndSaveSession(id, event) {
             if (event) event.stopPropagation();
             if (isGenerating) {
                 alert("Cannot delete a chat while AI is generating.");
                 return;
             }
+            if (isRecording) {
+                alert("Please stop recording before deleting a chat.");
+                return;
+            }
 
-            // Save before deleting
+            logSessionEvent('delete', id, sessions[id]?.name);
+
             if (sessions[id].log_data.length > 0) {
                 await fetch('/session/close', {
                     method: 'POST',
@@ -507,8 +520,17 @@
                     })
                 });
             }
+            const wasActive = (id === activeSession);
             delete sessions[id];
-            createNewChat(); // Always force a new chat window
+
+            const remainingIds = Object.keys(sessions);
+            if (remainingIds.length === 0) {
+                createNewChat();
+            } else {
+                if (wasActive) activeSession = remainingIds[remainingIds.length - 1];
+                renderSidebar();
+                renderChat();
+            }
         }
 
         async function archiveAllSessions() {
@@ -547,11 +569,33 @@
 
         function createBubble(text, isUser, metrics = null) {
             let styleClass = isUser ? 'user-bubble self-end' : 'ai-bubble self-start';
-            let html = `<div class="flex flex-col max-w-[85%] ${isUser ? 'self-end' : 'self-start'} mb-2"><div class="px-6 py-4 ${styleClass} shadow-md text-[15px] leading-relaxed whitespace-pre-wrap">${text}</div>`;
+            let html = `<div class="flex flex-col max-w-[85%] ${isUser ? 'self-end' : 'self-start'} mb-2">
+                <div class="px-6 py-4 ${styleClass} shadow-md text-[15px] leading-relaxed whitespace-pre-wrap">${text}</div>`;
+
+            if (!isUser) {
+                // Encoded to guarantee character safety inside the dataset variable
+                const safeText = encodeURIComponent(text);
+                let outputLocale = 'en-US';
+                if (metrics) {
+                    try { outputLocale = (JSON.parse(metrics).output_locale) || 'en-US'; } catch (e) { }
+                }
+                html += `<div class="mt-1 flex items-center gap-2">
+                    <button
+                        title="Start playback from beginning"
+                        data-text="${safeText}"
+                        data-locale="${outputLocale}"
+                        onclick="speakText(this)"
+                        class="text-slate-400 hover:text-blue-400 transition text-xs flex items-center gap-1 px-2 py-1 rounded bg-slate-800 border border-slate-700/60 shadow-sm font-medium">
+                        <i class="fas fa-play text-xs"></i>
+                        <span class="text-[11px]">Start</span>
+                    </button>
+                </div>`;
+            }
+
             if (metrics) {
                 try {
                     let m = JSON.parse(metrics);
-                    html += `<div class="text-[11px] text-slate-500 mt-2 font-mono ${isUser ? 'text-right' : 'text-left'} flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}">
+                    html += `<div class="text-[11px] text-slate-500 mt-1 font-mono ${isUser ? 'text-right' : 'text-left'} flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}">
                         <span title="Wait Time"><i class="fas fa-hourglass-start text-slate-600"></i> ${m.wait_time}s</span>
                         <span title="Processing Time"><i class="fas fa-microchip text-slate-600"></i> ${m.processing_time}s</span>
                         <span title="Resource State">[${m.resources}]</span>
@@ -567,7 +611,7 @@
         }
 
         async function sendMsg() {
-            if (isGenerating) return;
+            if (isGenerating || isRecording) return;
 
             const input = document.getElementById('query');
             const query = input.value.trim();
@@ -576,12 +620,12 @@
             const query_id = `UI-${Date.now().toString().slice(-6)}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
 
             isGenerating = true;
-            // Note: input remains enabled so user can type, but send is blocked
             document.getElementById('send-btn').disabled = true;
             document.getElementById('send-btn').innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
+            document.getElementById('mic-btn').disabled = true;
 
             sessions[activeSession].ui_history.push(`User: ${query}`);
-            
+
             if (sessions[activeSession].ui_history.length === 1) sessions[activeSession].name = query.substring(0, 25) + "...";
 
             let string_history = sessions[activeSession].ui_history.map(msg => msg.split("||METRICS||")[0]);
@@ -592,23 +636,27 @@
             try {
                 const res = await fetch('/rag', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        user_id: currentUser, 
-                        session_id: browserSessionId, 
-                        chat_id: activeSession, 
-                        query: query, 
-                        query_id: query_id, 
+                    body: JSON.stringify({
+                        user_id: currentUser,
+                        session_id: browserSessionId,
+                        chat_id: activeSession,
+                        query: query,
+                        query_id: query_id,
                         history: string_history,
-                        english_history: sessions[activeSession].english_history // NEW: Sending background English history to API
+                        english_history: sessions[activeSession].english_history,
+                        input_language: sessions[activeSession].input_language || 'auto',
+                        output_language: sessions[activeSession].output_language || 'auto'
                     })
                 });
                 const data = await res.json();
 
                 if (!res.ok) throw new Error(data.detail || "Server Error");
 
-                sessions[activeSession].ui_history.push(`AI: ${data.response}||METRICS||${JSON.stringify(data.metrics)}`);
+                const metricsWithLocale = { ...data.metrics, output_locale: data.output_locale || 'en-US' };
+                sessions[activeSession].ui_history.push(`AI: ${data.response}||METRICS||${JSON.stringify(metricsWithLocale)}`);
 
-                // NEW: Update background English History from the backend response
+                showLanguageWarning(data.language_warning || null);
+
                 if (data.english_question && data.english_response) {
                     sessions[activeSession].english_history.push(`User: ${data.english_question}`);
                     sessions[activeSession].english_history.push(`A: ${data.english_response}`);
@@ -634,6 +682,7 @@
                 isGenerating = false;
                 document.getElementById('send-btn').disabled = false;
                 document.getElementById('send-btn').innerHTML = '<i class="fas fa-arrow-up"></i>';
+                document.getElementById('mic-btn').disabled = false;
                 setTimeout(() => document.getElementById('query').focus(), 100);
             }
         }

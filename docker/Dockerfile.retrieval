@@ -1,17 +1,36 @@
 FROM python:3.10-slim
 WORKDIR /app
-RUN apt-get update && apt-get install -y gcc g++ python3-dev
-COPY requirements.txt .
 
-# FIX: Added a massive timeout threshold so large Nvidia/PyTorch wheels don't fail
+RUN apt-get update && apt-get install -y --no-install-recommends gcc g++ python3-dev ffmpeg && rm -rf /var/lib/apt/lists/*
+
+# 1. Install CUDA-enabled PyTorch first — sentence-transformers requires torch
+#    unpinned, so installing our pinned CUDA build first stops pip from
+#    separately downloading a second, unused generic torch wheel.
+RUN pip install --default-timeout=1000 --no-cache-dir \
+     torch==2.6.0 --extra-index-url https://download.pytorch.org/whl/cu124
+
+# 2. Copy and install standard requirements
+COPY requirements.txt .
 RUN pip install --default-timeout=1000 --no-cache-dir -r requirements.txt
+    
+# 3. Install the matching GPU runtime libraries via Pip
+RUN pip install --default-timeout=1000 --no-cache-dir \
+    nvidia-cublas-cu12 nvidia-cudnn-cu12
+
+RUN apt-get update && apt-get install -y gcc g++ python3-dev ffmpeg    
+
+# 4. Install CTranslate2 natively
+# RUN pip install --default-timeout=1000 --no-cache-dir ctranslate2
 
 RUN mkdir -p /models
 
-RUN python3 -m ctranslate2.converters.transformers \
-    --model facebook/nllb-200-distilled-600M \
-    --output_dir /models/nllb_ctranslate2 \
-    --quantization int8
+# 5. Download and convert NLLB-200.
+# We keep quantization as 'int8' because CTranslate2 supports running int8 weights 
+# on the GPU using 'int8_float16' compute type, which is extremely fast and saves VRAM.
+# RUN python3 -m ctranslate2.converters.transformers \
+#     --model facebook/nllb-200-distilled-600M \
+#     --output_dir /models/nllb_ctranslate2 \
+#     --quantization float16
 
 COPY . /app
 

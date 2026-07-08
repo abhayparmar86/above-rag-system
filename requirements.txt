@@ -10,3 +10,7 @@ pynvml
 sentence-transformers
 langgraph
 langdetect
+transformers
+ctranslate2
+faster-whisper
+python-multipart
