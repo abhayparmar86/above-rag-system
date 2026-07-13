@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+langchain
+psutil
+surrealdb
+httpx
+python-dotenv
+langchain_openai
+pynvml
+sentence-transformers
+langgraph

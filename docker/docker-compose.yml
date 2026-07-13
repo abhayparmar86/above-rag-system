@@ -1,0 +1,67 @@
+services:
+  vllm_retrieval:
+    image: vllm_mistral_server
+    container_name: rag_vllm_isolated
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.vllm
+    environment:
+      - VLLM_TARGET_GPU_MEMORY_GB=8  
+    restart: always
+    runtime: nvidia 
+    ports:
+      - "9005:8005"  
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      # Map the host's model folder directly into the container's /models directory
+      - /home/android/Documents/abhay/models/Mistral-7B-Instruct-v0.2-AWQ:/models/Mistral-7B-Instruct-v0.2-AWQ
+    command:
+      - sh
+      - -c
+      - |
+        TOTAL_MB=$$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -n1 | tr -d ' ')
+        TARGET_MB=$$(( $${VLLM_TARGET_GPU_MEMORY_GB:-8} * 1024 ))
+        UTIL=$$(awk "BEGIN {printf \"%.2f\", $$TARGET_MB / $$TOTAL_MB}")
+        exec python3 -m vllm.entrypoints.openai.api_server \
+          --host 0.0.0.0 \
+          --port 8005 \
+          --model /models/Mistral-7B-Instruct-v0.2-AWQ \
+          --served-model-name mistral-local \
+          --quantization awq \
+          --dtype float16 \
+          --max-model-len 8192 \
+          --max-num-seqs 1 \
+          --gpu-memory-utilization $${UTIL} \
+          --enforce-eager
+
+  api_retrieval:
+    image: rag_api:v3
+    container_name: rag_api_isolated
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.retrieval
+    runtime: nvidia  
+    depends_on:
+      - vllm_retrieval
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - SURREAL_URL=ws://host.docker.internal:8000/rpc
+      - VLLM_URL=http://vllm_retrieval:8005/v1  
+    ports:
+      - "9001:9001"  
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../app:/app
+      - ../logs:/logs
+
+networks:
+  default:
+    name: data_retrival_network
+    driver: bridge
