@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, F
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from core.logger import get_process_resources, save_session_to_csv, setup_logging, get_logger
+from core.reminders import get_daily_reminders_and_mark 
 
 # Logging must be set up before importing modules that log at import time
 # (stt.py loads Whisper, translation.py loads NLLB — both print on import).
@@ -21,6 +22,7 @@ from core.database import DBManager, embedder, util
 from core.translation import detect_language, translate_to_native, is_language_supported, get_bcp47, list_supported_languages
 from core.stt import transcribe  # NEW: Whisper STT
 import concurrent.futures
+import httpx
 
 try:
     torch.set_num_threads(1)
@@ -118,7 +120,16 @@ async def verify_user(user_id: str):
         raise HTTPException(status_code=400, detail="Please enter a User ID.")
     print(f"✅ Demo Mode: Authenticated {user_id} automatically.")
     logger.info("User verified | user_id=%s", user_id)
-    return {"status": "success", "user_id": user_id}
+    
+    # Clean workspace reminder check on login
+    mcp_url = os.environ.get("CALENDAR_MCP_URL", "http://calendar_mcp:8090/sse")
+    today_reminders = await get_daily_reminders_and_mark(user_id, db_manager, mcp_url)
+    
+    return {
+        "status": "success", 
+        "user_id": user_id,
+        "reminders": today_reminders
+    }
 
 @api.get("/languages")
 async def get_supported_languages():
@@ -250,26 +261,37 @@ async def handle_query(req: QueryRequest):
     # ---------------------------------------------------------
     # 1. SEMANTIC CACHE CHECK
     # ---------------------------------------------------------
-    # Generate embedding for the incoming query without blocking the async loop
-    query_vec = await asyncio.to_thread(embedder.encode, req.query)
     
-    user_cache = semantic_cache.get(req.user_id, [])
+    # BYPASS CACHE FOR TOOL CALL QUERIES
+    query_lower = req.query.lower()
+    is_tool_query = any(kw in query_lower for kw in [
+        "schedule", "calendar", "meeting", "event", "task", "todo", "to-do", 
+        "doc", "document", "reminder", "remind", "diary"
+    ])
+    
+    query_vec = None
     cache_hit_response = None
+    
+    if not is_tool_query:
+        
+        # Generate embedding for the incoming query without blocking the async loop
+        query_vec = await asyncio.to_thread(embedder.encode, req.query)    
+        user_cache = semantic_cache.get(req.user_id, [])
 
-    if user_cache:
-        # Extract all cached vectors for this user
-        cached_vectors = [item['vector'] for item in user_cache]
+        if user_cache:
+            # Extract all cached vectors for this user
+            cached_vectors = [item['vector'] for item in user_cache]
+            
+            # Calculate cosine similarity against all cached vectors at once
+            similarities = util.cos_sim(query_vec, cached_vectors)[0]
+            
+            # Find the most similar cached query
+            max_sim_idx = torch.argmax(similarities).item()
+            max_sim_value = similarities[max_sim_idx].item()
         
-        # Calculate cosine similarity against all cached vectors at once
-        similarities = util.cos_sim(query_vec, cached_vectors)[0]
-        
-        # Find the most similar cached query
-        max_sim_idx = torch.argmax(similarities).item()
-        max_sim_value = similarities[max_sim_idx].item()
-        
-        if max_sim_value >= CACHE_THRESHOLD:
-            cache_hit_response = user_cache[max_sim_idx]['response']
-            console.print(f"[green][bold]⚡ CACHE HIT[/bold][/] [magenta][{req.query_id}][/] Similarity: {max_sim_value:.3f}")
+            if max_sim_value >= CACHE_THRESHOLD:
+                cache_hit_response = user_cache[max_sim_idx]['response']
+                console.print(f"[green][bold]⚡ CACHE HIT[/bold][/] [magenta][{req.query_id}][/] Similarity: {max_sim_value:.3f}")
 
     # If cache hit, return immediately!
     if cache_hit_response:
@@ -369,18 +391,23 @@ async def handle_query(req: QueryRequest):
             # ---------------------------------------------------------
             # 2. CACHE UPDATE (Missed cache, so save the new answer)
             # ---------------------------------------------------------
-            if req.user_id not in semantic_cache:
-                semantic_cache[req.user_id] = []
+            if not is_tool_query:
+            # Ensure the vector is generated if it was bypassed initially
+                if query_vec is None:
+                    query_vec = await asyncio.to_thread(embedder.encode, req.query)
+                    
+                if req.user_id not in semantic_cache:
+                    semantic_cache[req.user_id] = []
+                    
+                semantic_cache[req.user_id].append({
+                    "vector": query_vec, 
+                    "question": req.query,
+                    "response": final_response
+                })
                 
-            semantic_cache[req.user_id].append({
-                "vector": query_vec, 
-                "question": req.query,
-                "response": final_response
-            })
-            
-            # Keep cache from growing infinitely
-            if len(semantic_cache[req.user_id]) > MAX_CACHE_PER_USER:
-                semantic_cache[req.user_id].pop(0) # Remove oldest query
+                # Keep cache from growing infinitely
+                if len(semantic_cache[req.user_id]) > MAX_CACHE_PER_USER:
+                    semantic_cache[req.user_id].pop(0) # Remove oldest query
             # ---------------------------------------------------------
             
             processing_end_time = time.time()

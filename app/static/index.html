@@ -428,6 +428,8 @@
             try {
                 const res = await fetch(`/verify/${id}`);
                 if (!res.ok) throw new Error();
+                const data = await res.json();
+                
                 currentUser = id;
                 document.getElementById('auth-modal').style.display = 'none';
                 document.getElementById('sidebar').classList.remove('blur-sm');
@@ -436,12 +438,60 @@
                 document.getElementById('query').disabled = false;
                 document.getElementById('send-btn').disabled = false;
                 document.getElementById('mic-btn').disabled = false;
+                
                 sessions = {};
                 createNewChat();
-            } catch {
+                
+                // If the backend returned active unread reminders, inject the greeting card
+                if (data.reminders && data.reminders.length > 0) {
+                    injectProactiveReminders(data.reminders);
+                }
+            } catch (err) {
+                console.error(err);
                 document.getElementById('auth-error').classList.remove('hidden');
                 document.getElementById('auth-btn').innerHTML = 'Authenticate';
             }
+        }
+        
+        // UI injector to build the proactive alerts welcome card
+        function injectProactiveReminders(reminders) {
+            const chatContainer = document.getElementById('chat-container');
+            
+            let reminderItemsHtml = reminders.map(r => {
+                const icon = r.type === 'event' ? 'fa-calendar-day text-blue-400' : 'fa-check-circle text-green-400';
+                
+                // Safely extract event time (start) or task deadline (due)
+                const rawTime = r.start || r.due || '';
+                const timeString = (rawTime && rawTime.includes('T')) 
+                    ? ` [${rawTime.split('T')[1].slice(0, 5)}]` 
+                    : '';
+                    
+                return `
+                    <div class="flex items-start gap-3 py-2 border-b border-slate-700/40 last:border-0 text-sm text-slate-300">
+                        <i class="fas ${icon} mt-0.5"></i>
+                        <div>
+                            <span class="font-semibold text-slate-200">${r.title}</span>${timeString}
+                            ${r.notes ? `<p class="text-xs text-slate-400 mt-0.5">${r.notes}</p>` : ''}
+                        </div>
+                    </div>`;
+            }).join('');
+
+            const alertHtml = `
+                <div class="flex flex-col max-w-[85%] self-start mb-2">
+                    <div class="px-6 py-4 ai-bubble self-start shadow-md text-[15px] leading-relaxed">
+                        <div class="flex items-center gap-2 font-semibold text-blue-400 mb-3 text-base">
+                            <i class="fas fa-bell"></i> Briefing & Reminders
+                        </div>
+                        <p class="text-slate-300 mb-2">Welcome back! I found the following unread events and tasks scheduled for today:</p>
+                        <div class="bg-slate-900/40 rounded-lg p-3 border border-slate-700/50 mb-3">
+                            ${reminderItemsHtml}
+                        </div>
+                        <p class="text-xs text-slate-400 font-medium italic"><i class="fas fa-info-circle mr-1"></i> I've marked these reminders as read so they won't pop up again.</p>
+                    </div>
+                </div>`;
+                
+            chatContainer.insertAdjacentHTML('beforeend', alertHtml);
+            scrollToBottom();
         }
 
         async function logout() {

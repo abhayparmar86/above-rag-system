@@ -6,6 +6,8 @@ from core.database import DBManager
 from core.logger import log_step_to_csv, get_session_path, save_detailed_log
 from typing import TypedDict, List, Dict
 from core.translation import translate_to_english, translate_to_native
+from core.calendar_agent import calendar_agent_node
+import re
 
 # Initialization
 llm = OpenAI(openai_api_base="http://vllm_retrieval:8005/v1", openai_api_key="EMPTY", model_name="mistral-local", temperature=0.1, stop=["User:", "History:", "Query:", "query", "\n\nUser:", "AI:"])
@@ -159,37 +161,123 @@ async def reformulation_node(state: PipelineState):
         "latencies": {**state.get("latencies", {}), "reformulation": time.time() - start}
     }
 
+# async def intent_node(state: PipelineState):
+#     start = time.time()
+#     prompt = f"""[INST] You are an expert AI Classifier for a RAG system. 
+#     Your goal is to categorize the user's query into exactly one of four categories: 'casual', 'factual', 'historical', or 'out_of_bounds' .
+
+#     DEFINITIONS:
+#     1. 'casual': Used for greetings, small talk, pleasantries, or general questions not related to the user, their specific data, or their work, or questions related to general knowledge and information, which people generally ask to web based search agent or chatbot.(Any general question not related to User personal information) (e.g., "Hello","How are you?", "Tell me a joke", "What is the weather in London?", "What is thermodynamics?").
+#     2. 'factual': Used for questions about the user's personal profile or stored facts like entities realted to user, projects/companies/clients user has worked for etc. NOTE: Facts here refer to User personal information and not general 'Facts' from world. This includes queries like "Who is my manager?" or "What is my company?" or "what is relation of Priya and John?" or "How is Kevin related to Jay?"
+#     3. 'historical': Used for queries that require searching through meeting transcripts, summaries, or past actions. This includes questions about specific past discussions, project progress updates, or details from a meeting (e.g., "What did Rahul say about the API module?", "What were the action items from yesterday's sync?").
+#     4. 'out_of_bounds': Used for ANY query asking to write code, solve math problems, discuss news, adopt a specific persona/role, or perform general world tasks unrelated to the user's personal data, meetings, and insights.
+    
+#     INSTRUCTIONS:
+#     - Return ONLY the single word (casual, factual, or historical).
+#     - Do not output punctuation or extra text. Just answer in single word.
+#     - If in doubt between 'factual' and 'historical', default to 'historical'.
+#     - Do not generate any explanation. Just return the single word response, no other text or explanation.
+
+#     Query: {state['question']}
+#     Category: [/INST]"""    
+    
+#     # GUARDAIL: Force vLLM to ONLY generate one of these three exact strings
+#     category = (await llm.ainvoke(
+#         prompt,
+#         extra_body={"guided_choice": ["casual", "factual", "historical", "out_of_bounds"]}
+#     )).strip().lower()
+    
+#     # Guardrail for avoid explanation
+#     if "(" in category: 
+#         category = category.split("(")[0].strip()
+#     if "[" in category: 
+#         category = category.split("[")[0].strip()
+    
+#     return {"category": category, "latencies": {**state.get("latencies", {}), "router": time.time() - start}}
+
+# async def intent_node(state: PipelineState):
+#     start = time.time()
+#     prompt = f"""[INST] You are an expert AI Classifier for a RAG system. 
+#     Your goal is to categorize the user's query into exactly one of five categories: 'casual', 'factual', 'historical', 'out_of_bounds', or 'calendar'.
+
+#     DEFINITIONS:
+#     1. 'casual': Used for greetings, small talk, pleasantries, or general questions not related to the user, their specific data, or their work, or questions related to general knowledge and information.(e.g., "Hello","How are you?", "Tell me a joke", "What is the weather in London?", "What is thermodynamics?").
+#     2. 'factual': Used for questions about the user's personal profile or stored facts like entities realted to user, projects/companies/clients user has worked for etc. NOTE: Facts here refer to User personal information and not general 'Facts' from world. This includes queries like "Who is my manager?" or "What is my company?" or "what is relation of Priya and John?" or "How is Kevin related to Jay?"
+#     3. 'historical': Used for queries that require searching through meeting transcripts, summaries, or past actions. This includes questions about specific past discussions, project progress updates, or details from a meeting (e.g., "What did Rahul say about the API module?", "What were the action items from yesterday's sync?").
+#     4. 'out_of_bounds': Used for ANY query asking to write code, solve math problems, discuss news, adopt a specific persona/role, or perform general world tasks unrelated to the user's personal data, meetings, and insights.
+#     5. 'calendar': Used for ANY queries requesting actions on calendar events, scheduling meetings, displaying upcoming schedules, modifying existing meetings, deleting appointments, or searching for calendar information. (e.g., "Add an event on Friday at 4 PM", "What is on my calendar today?", "Reschedule my 2 PM meeting to 3 PM", "Delete the event 'sync meeting'").
+    
+#     INSTRUCTIONS:
+#     - Return ONLY the single word (casual, factual, historical, out_of_bounds, or calendar).
+#     - Do not output punctuation or extra text. Just answer in single word.
+#     - If in doubt between 'factual' and 'historical', default to 'historical'.
+#     - Do not generate any explanation. Just return the single word response, no other text or explanation.
+
+#     Query: {state['question']}
+#     Category: [/INST]"""    
+    
+#     # Update guided choice array
+#     category = (await llm.ainvoke(
+#         prompt,
+#         extra_body={"guided_choice": ["casual", "factual", "historical", "out_of_bounds", "calendar"]}
+#     )).strip().lower()
+    
+#     # Guardrail for avoid explanation
+#     if "(" in category: 
+#         category = category.split("(")[0].strip()
+#     if "[" in category: 
+#         category = category.split("[")[0].strip()
+    
+#     return {"category": category, "latencies": {**state.get("latencies", {}), "router": time.time() - start}}
+
 async def intent_node(state: PipelineState):
     start = time.time()
-    prompt = f"""[INST] You are an expert AI Classifier for a RAG system. 
-    Your goal is to categorize the user's query into exactly one of four categories: 'casual', 'factual', 'historical', or 'out_of_bounds' .
+    question_lower = state['question'].lower()
+    
+    # 1. Deterministic Guardrail: Force calendar routing for obvious scheduling verbs/nouns
+    calendar_keywords = [
+        "schedule", "calendar", "calendar", "add meeting", "create meeting", 
+        "add event", "create event", "delete event", "delete meeting", 
+        "reschedule", "upcoming events", "list events", "what's on my day","to-do",
+        "note","add notes","reminder", "add reminder", "doc"
+    ]
+    
+    if any(kw in question_lower for kw in calendar_keywords):
+        category = "calendar"
+        console.print(f"[bold green]🎯 ROUTER (Deterministic Guardrail Match):[/] [yellow]{category}[/]")
+    else:
+        # 2. Fallback to LLM Classification for ambiguous queries
+        prompt = f"""[INST] You are an expert AI Classifier for a RAG system. 
+        Your goal is to categorize the user's query into exactly one of five categories: 'casual', 'factual', 'historical', 'out_of_bounds', or 'calendar'.
 
-    DEFINITIONS:
-    1. 'casual': Used for greetings, small talk, pleasantries, or general questions not related to the user, their specific data, or their work, or questions related to general knowledge and information, which people generally ask to web based search agent or chatbot.(Any general question not related to User personal information) (e.g., "Hello","How are you?", "Tell me a joke", "What is the weather in London?", "What is thermodynamics?").
-    2. 'factual': Used for questions about the user's personal profile or stored facts like entities realted to user, projects/companies/clients user has worked for etc. NOTE: Facts here refer to User personal information and not general 'Facts' from world. This includes queries like "Who is my manager?" or "What is my company?" or "what is relation of Priya and John?" or "How is Kevin related to Jay?"
-    3. 'historical': Used for queries that require searching through meeting transcripts, summaries, or past actions. This includes questions about specific past discussions, project progress updates, or details from a meeting (e.g., "What did Rahul say about the API module?", "What were the action items from yesterday's sync?").
-    4. 'out_of_bounds': Used for ANY query asking to write code, solve math problems, discuss news, adopt a specific persona/role, or perform general world tasks unrelated to the user's personal data, meetings, and insights.
-    
-    INSTRUCTIONS:
-    - Return ONLY the single word (casual, factual, or historical).
-    - Do not output punctuation or extra text. Just answer in single word.
-    - If in doubt between 'factual' and 'historical', default to 'historical'.
-    - Do not generate any explanation. Just return the single word response, no other text or explanation.
+        DEFINITIONS:
+        1. 'casual': Used for greetings, small talk, pleasantries, or general questions not related to the user or their work, or questions related to general knowledge and information.(e.g., "Hello","How are you?", "Tell me a joke").
+        2. 'factual': Used for questions about the user's personal profile or stored facts like entities realted to user, projects/companies/clients user has worked for etc. NOTE: Facts here refer to User personal information and not general 'Facts' from world. This includes queries like "Who is my manager?" or "What is my company?" or "what is relation of Priya and John?" or "How is Kevin related to Jay?"
+        3. 'historical': Used for queries that require searching through past meeting transcripts, summaries, or past actions. This includes questions about specific past discussions, project progress updates, or details from a meeting (e.g., "What did Rahul say about the API module?", "What were the action items from yesterday's sync?").
+        4. 'out_of_bounds': Used for ANY query asking to write code, solve math problems, discuss news, adopt a specific persona/role, or perform general world tasks unrelated to the user's personal data, meetings, and insights.
+        5. 'calendar': Used for ANY queries requesting actions on Google Workspace including managing calendar events, scheduling meetings, displaying upcoming schedules, modifying existing meetings, deleting appointments, or searching for calendar information,  managing tasks or to-dos, and creating or writing documents, diaries, and notes. (e.g., "Add an event on Friday at 4 PM", "What is on my calendar today?", "Create a task for tomorrow", "Reschedule my 2 PM meeting to 3 PM", "Save this summary to a doc", "Delete the event 'sync meeting'").
+        
+        INSTRUCTIONS:
+        - Return ONLY the single word (casual, factual, historical, out_of_bounds, or calendar).
+        - Do not output punctuation or extra text. Just answer in single word.
+        - Do not generate any explanation. Just return the single word response, no other text or explanation.
 
-    Query: {state['question']}
-    Category: [/INST]"""    
-    
-    # GUARDAIL: Force vLLM to ONLY generate one of these three exact strings
-    category = (await llm.ainvoke(
-        prompt,
-        extra_body={"guided_choice": ["casual", "factual", "historical", "out_of_bounds"]}
-    )).strip().lower()
-    
-    # Guardrail for avoid explanation
-    if "(" in category: 
-        category = category.split("(")[0].strip()
-    if "[" in category: 
-        category = category.split("[")[0].strip()
+        Query: {state['question']}
+        Category: [/INST]"""    
+        
+        category = (await llm.ainvoke(
+            prompt,
+            extra_body={"guided_choice": ["casual", "factual", "historical", "out_of_bounds", "calendar"]}
+        )).strip().lower()
+        
+        if "(" in category: 
+            category = category.split("(")[0].strip()
+        if "[" in category: 
+            category = category.split("[")[0].strip()
+        if "." in category: 
+            category = category.split(".")[0].strip()    
+            
+        console.print(f"[bold yellow]🔍 ROUTER (LLM Decided):[/] [yellow]{category}[/]")
     
     return {"category": category, "latencies": {**state.get("latencies", {}), "router": time.time() - start}}
 
@@ -209,7 +297,7 @@ async def extraction_node(state: PipelineState):
        - If the user asks about a "plan for Q4" or "future meeting", do NOT use Q4 as the search range. Instead, use the most recent 3-6 months as the search range because that's when the planning discussion likely happened.
        - If no time is implied, return []. 
        - Keep one date buffer before the start date of range as well as after end date of range of timeframe. for exampe if you get [2026-07-22, 2026-08-22], return the range [2026-07-21, 2026-08-23].
-    4. QUALITY CONTROL: Id a field is not relevent to the query, return an empty list or null. Do not hallucinate topics.
+    4. QUALITY CONTROL: If a field is not relevent to the query, return an empty list or null. Do not hallucinate topics.
 
     Return ONLY a JSON object with this structure:
     {{
@@ -234,9 +322,12 @@ async def extraction_node(state: PipelineState):
        
     raw = (await llm.ainvoke(
         prompt,
-        stop=["[/INST] ", "</s>"], 
-        extra_body={"guided_json": extraction_schema}
+        stop=["[/INST] ", "</s>","\nQuery","\nJSON Output"], 
+        extra_body={"guided_json": extraction_schema},
+        max_tokens = 80
     ))
+    
+    m = re.search(r'\{.*\}',raw,re.DOTALL)
     
     console.print(f"################ RAW Metadata: ################### \n {raw} ")
     
@@ -403,6 +494,18 @@ workflow.add_node("llm_factual", llm_factual_node)
 workflow.add_node("llm_rag", llm_rag_node)
 workflow.add_node("translate_in", translate_in_node)
 workflow.add_node("translate_out", translate_out_node)
+workflow.add_node("calendar_agent", calendar_agent_node)
+
+# def route_intent(state):
+#     cat = state["category"]
+#     if "out_of_bounds" in cat:
+#         return 'refusal'
+#     elif "casual" in cat:
+#         return 'llm_simple'
+#     elif "factual" in cat:
+#         return 'factual_retrieval'
+#     else:
+#         return 'extractor'   
 
 def route_intent(state):
     cat = state["category"]
@@ -412,8 +515,10 @@ def route_intent(state):
         return 'llm_simple'
     elif "factual" in cat:
         return 'factual_retrieval'
+    elif "calendar" in cat:
+        return 'calendar_agent' # ADDED
     else:
-        return 'extractor'     
+        return 'extractor'  
     
 
 # workflow.set_entry_point("reformulator")
@@ -429,6 +534,7 @@ workflow.add_edge("factual_retrieval", "llm_factual")
 workflow.add_edge("llm_rag", "translate_out")
 workflow.add_edge("llm_factual", "translate_out")
 workflow.add_edge("llm_simple", "translate_out")
+workflow.add_edge("calendar_agent", "translate_out")
 workflow.add_edge("translate_out", END)
 
 rag_graph = workflow.compile()

@@ -6,7 +6,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.vllm
     environment:
-      - VLLM_TARGET_GPU_MEMORY_GB=8  
+      - VLLM_TARGET_GPU_MEMORY_GB=6  
     restart: always
     runtime: nvidia 
     ports:
@@ -39,6 +39,24 @@ services:
           --max-num-seqs 20 \
           --gpu-memory-utilization $${UTIL} \
           --enforce-eager
+  
+  calendar_mcp:
+    image: calendar_mcp:v1
+    container_name: calendar_mcp_container
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.calendar_tool
+    restart: always
+    ports: 
+      - "8090:8090"
+    environment:
+      - TZ=Asia/Kolkata  
+    volumes:
+      - ../app/google_calendar_mcp_server.py:/app/google_calendar_mcp_server.py
+      - /home/android/Documents/vihang/POC_RAG_PLUS/tool_calling/Project-v2/.\/.credentials.json:/app/credentials.json
+      - /home/android/Documents/vihang/POC_RAG_PLUS/tool_calling/Project-v2/.creds/.token.json:/app/token.json 
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro  
 
   api_retrieval:
     image: rag_api:v3
@@ -49,6 +67,7 @@ services:
     runtime: nvidia  
     depends_on:
       - vllm_retrieval
+      - calendar_mcp
     deploy:
       resources:
         reservations:
@@ -58,12 +77,14 @@ services:
               capabilities: [gpu]  
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
-      - SURREAL_URL=ws://host.docker.internal:8000/rpc
+      - SURREAL_URL=ws://host.docker.internal:19521/rpc
       - VLLM_URL=http://vllm_retrieval:8005/v1  
       - HF_HOME=/models/hf_cache
     # Add this line to force instant, unbuffered log printing:
       - PYTHONUNBUFFERED=1  
       - HF_TOKEN=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
+      - calendar_MCP_URL=http://calendar_mcp:8090/sse
+      - TZ=Asia/Kolkata
     ports:
       - "9001:9001"  
     extra_hosts:
@@ -74,6 +95,8 @@ services:
       - ../certs:/certs:ro
       - /home/android/Documents/abhay/models/nllb_ctranslate2:/models/nllb_ctranslate2
       - /home/android/Documents/abhay/models/hf_cache:/models/hf_cache
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     command:
       - uvicorn
       - main:api
@@ -86,6 +109,7 @@ services:
       - --ssl-certfile
       - /certs/cert.pem
 
+ 
 networks:
   default:
     name: data_retrival_network

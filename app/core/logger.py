@@ -179,3 +179,91 @@ def save_detailed_log(state, prompt, node_name, response=None):
         f.write(f"Prompt Sent:\n{prompt}\n")
         f.write(f"Response:\n{response if response else 'N/A'}\n")
         f.write("-" * 60 + "\n")
+        
+
+def save_workspace_agent_log(state: dict, planner_prompt: str, raw_plan: str, 
+                             plan: list, execution_trace: list, 
+                             response_prompt: str, response: str, latencies: dict):
+    """
+    Saves a detailed chronological text trace and a structured JSON 
+    telemetry entry inside the active user's session folder.
+    """
+    session_dir = get_session_path(state.get('user_id'), state.get('session_id'), state.get('chat_id'))
+    timestamp = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S")
+    
+    # --- 1. CHRONOLOGICAL TEXT TRACE (For Human Debugging) ---
+    text_path = os.path.join(session_dir, "agent_detailed_trace.txt")
+    with open(text_path, "a", encoding="utf-8") as f:
+        f.write(f"\n{'='*30} WORKSPACE AGENT TRACE | {timestamp} {'='*30}\n")
+        f.write(f"User Query: {state.get('question')}\n\n")
+        
+        f.write(f"--- PHASE 1: PLANNING ---\n")
+        f.write(f"Planner Prompt:\n{planner_prompt}\n\n")
+        f.write(f"Raw LLM Plan Output:\n{raw_plan}\n\n")
+        f.write(f"Parsed & Validated Plan:\n{json.dumps(plan, indent=2)}\n\n")
+        
+        f.write(f"--- PHASE 2: EXECUTION TIMELINE ---\n")
+        for trace in execution_trace:
+            f.write(f"[Step {trace.get('step')}] Tool: {trace.get('tool')}\n")
+            f.write(f"  - Original Args: {json.dumps(trace.get('original_args'))}\n")
+            f.write(f"  - Placeholder Resolution:\n")
+            for line in trace.get('placeholder_trace', []):
+                f.write(f"    * {line}\n")
+            f.write(f"  - Resolved Args: {json.dumps(trace.get('resolved_args'))}\n")
+            f.write(f"  - MCP Response: {trace.get('response')}\n")
+            f.write(f"  - Status: {trace.get('status')}\n\n")
+            
+        f.write(f"--- PHASE 3: RESPONSE GENERATION ---\n")
+        f.write(f"Response Prompt:\n{response_prompt}\n\n")
+        f.write(f"Final Friendly Response:\n{response}\n\n")
+        
+        f.write(f"--- PERFORMANCE METRICS ---\n")
+        f.write(f"Planning Latency: {latencies.get('planning', 0):.4f}s\n")
+        f.write(f"Execution Latency: {latencies.get('execution', 0):.4f}s\n")
+        f.write(f"Response Latency: {latencies.get('response', 0):.4f}s\n")
+        f.write(f"Total Agent Latency: {latencies.get('total', 0):.4f}s\n")
+        f.write(f"{'='*88}\n")
+
+    # --- 2. STRUCTURED JSON TELEMETRY (For Programmatic Auditing) ---
+    json_path = os.path.join(session_dir, "agent_workspace_trace.json")
+    
+    log_entry = {
+        "timestamp": timestamp,
+        "query_id": state.get("query_id", "N/A"),
+        "user_id": state.get("user_id"),
+        "session_id": state.get("session_id"),
+        "chat_id": state.get("chat_id"),
+        "user_query": state.get("question"),
+        "planning_phase": {
+            "prompt": planner_prompt,
+            "raw_output": raw_plan,
+            "parsed_plan": plan,
+            "latency_s": latencies.get("planning", 0)
+        },
+        "execution_phase": {
+            "steps": execution_trace,
+            "latency_s": latencies.get("execution", 0)
+        },
+        "response_phase": {
+            "prompt": response_prompt,
+            "response": response,
+            "latency_s": latencies.get("response", 0)
+        },
+        "performance_metrics": {
+            "total_latency_s": latencies.get("total", 0)
+        },
+        "resources": get_process_resources()
+    }
+    
+    existing_data = []
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, "r", encoding="utf-8") as fj:
+                existing_data = json.load(fj)
+        except Exception:
+            existing_data = []
+            
+    existing_data.append(log_entry)
+    
+    with open(json_path, "w", encoding="utf-8") as fj:
+        json.dump(existing_data, fj, indent=2, default=str)        

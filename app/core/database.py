@@ -5,7 +5,7 @@ from core.logger import get_logger
 
 logger = get_logger(__name__)
 
-SURREAL_URL = os.environ.get("SURREAL_URL", "ws://host.docker.internal:8000/rpc")
+SURREAL_URL = os.environ.get("SURREAL_URL", "ws://host.docker.internal:19521/rpc")
 NAMESPACE, DATABASE = 'insights_system', 'production'
 embedder = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2', device='cuda')
 
@@ -178,3 +178,82 @@ class DBManager:
                 break
             
         return "\n\n".join(unique_facts) if unique_facts else "No specific facts found."
+    
+       
+    def filter_new_reminders_and_register(self, user_id: str, items: list[dict]) -> list[dict]:
+        """
+        Checks a list of calendar events or tasks against SurrealDB to filter out 
+        any that have already been proactively notified to the user today. 
+        Unnotified items are registered as 'notified' (along with their rich metadata)
+        and returned to the frontend.
+        """
+        conn = self._get_connection()
+        conn.signin({"username": "root", "password": "root"})
+        conn.use(NAMESPACE, DATABASE)
+        
+        # Self-Healing: Explicitly define the table as schemaless to instantiate it
+        try:
+            conn.query("DEFINE TABLE notified_reminders SCHEMALESS")
+        except Exception:
+            pass
+            
+        unnotified_items = []
+        
+        for item in items:
+            item_id = item.get("event_id") or item.get("task_id")
+            if not item_id:
+                continue
+                
+            record_id = f"notified_reminders:{user_id}_{item_id}"
+            
+            try:
+                already_notified = False
+                
+                # 1. Check if record exists using a typed Record ID comparison
+                try:
+                    res = conn.query(
+                        "SELECT * FROM notified_reminders WHERE id = type::record($rid)", 
+                        {"rid": record_id}
+                    )
+                    already_notified = len(res[0].get('result', [])) > 0 if res else False
+                except Exception as select_err:
+                    if "does not exist" in str(select_err):
+                        already_notified = False
+                    else:
+                        raise select_err
+                
+                # 2. If not already notified, write record with rich metadata to SurrealDB
+                if not already_notified:
+                    conn.query(
+                        """
+                        CREATE type::record($rid) SET 
+                            user_id = $uid, 
+                            item_id = $iid, 
+                            item_type = $type,
+                            title = $title,
+                            notes = $notes,
+                            scheduled_time = $time,
+                            attendees = $attendees,
+                            notified_at = time::now()
+                        """,
+                        {
+                            "rid": record_id, 
+                            "uid": f"users:{user_id}", 
+                            "iid": item_id,
+                            "type": item.get("type", "unknown"),
+                            "title": item.get("title", "No Title"),
+                            # Unifies Google Calendar "description" and Google Tasks "notes"
+                            "notes": item.get("notes") or item.get("description") or "",
+                            # Unifies Google Calendar "start" time and Google Tasks "due" date
+                            "time": item.get("start") or item.get("due") or "",
+                            "attendees": item.get("attendees") or []
+                        }
+                    )
+                    unnotified_items.append(item)
+            except Exception as e:
+                # Fail-soft fallback
+                logger.error("Failed to check/register notified reminder %s: %s", record_id, str(e))
+                unnotified_items.append(item)
+                
+        return unnotified_items
+    
