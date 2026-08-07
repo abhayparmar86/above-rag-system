@@ -47,7 +47,7 @@ class Plan(BaseModel):
 def resolve_placeholders_with_trace(args: dict, executor_state: dict) -> tuple[dict, list[str]]:
     """
     Replace $key or $key.field placeholders with values from state results.
-    Returns the resolved args dict and a human-readable tracing list.
+    Automatically cleans and heals bracket indexing (like [0]) if appended by the LLM.
     """
     resolved = {}
     trace = []
@@ -57,13 +57,22 @@ def resolve_placeholders_with_trace(args: dict, executor_state: dict) -> tuple[d
             placeholder = v[1:]  # strip $
             if "." in placeholder:
                 result_key, field = placeholder.split(".", 1)
+                
+                # --- SELF-HEALING BRACKET CLEANER ---
+                # If LLM appended bracket indexing to the field name, strip it on the fly
+                # E.g. "task_id[0]" -> "task_id"
+                if "[" in field:
+                    clean_field = field.split("[")[0]
+                    trace.append(f"Safety Gate Intercepted bracket index in field '{field}' -> Automatically cleaned to '{clean_field}'")
+                    field = clean_field
+                    
                 stored = executor_state["results"].get(result_key, "")
                 try:
                     stored_data = json.loads(stored) if isinstance(stored, str) else stored
                     if isinstance(stored_data, list):
                         stored_data = stored_data[0] if stored_data else {}
                     resolved[k] = stored_data.get(field, stored)
-                    trace.append(f"Mapped key '{k}' from nested placeholder '${v}' -> successfully resolved to: '{resolved[k]}'")
+                    trace.append(f"Mapped key '{k}' from nested placeholder '${v}' -> resolved to: '{resolved[k]}'")
                 except Exception as e:
                     resolved[k] = stored
                     trace.append(f"Failed to parse JSON for placeholder '${v}'. Defaulted to raw storage: '{stored}'. Error: {str(e)}")
@@ -79,9 +88,8 @@ def resolve_placeholders_with_trace(args: dict, executor_state: dict) -> tuple[d
                         
                         target_key = "event_id" if k == "event_id" else "task_id"
                         if isinstance(stored_data, dict) and target_key in stored_data:
-                            original_stored = stored
                             stored = stored_data[target_key]
-                            trace.append(f"Safety Gate Intercepted root placeholder '${v}' -> Automatically parsed JSON and extracted raw ID: '{stored}'")
+                            trace.append(f"Safety Gate Intercepted root placeholder '${v}' -> Automatically extracted raw ID: '{stored}'")
                     except Exception as e:
                         trace.append(f"Safety Gate failed to parse JSON for key '{k}'. Error: {str(e)}")
                 
@@ -91,7 +99,6 @@ def resolve_placeholders_with_trace(args: dict, executor_state: dict) -> tuple[d
             resolved[k] = v
             
     return resolved, trace
-
 
 # --- LangGraph Execution Node ---
 async def calendar_agent_node(state):
@@ -120,44 +127,34 @@ async def calendar_agent_node(state):
                 # PHASE 1 — PLANNER LLM CALL
                 planner_start = time.time()
                 planner_prompt = f"""[INST] You are a Google Workspace planning assistant.
-                    Analyze the user request and produce an ordered execution plan using Google Calendar, Tasks, and Docs tools.
+                    Analyze the user request and produce an ordered execution plan.
 
-                    Available tools and their argument schemas:
+                    Available tools and schemas:
                     {json.dumps(tool_schemas, indent=2)}
 
-                    Current calendar events (use these real IDs for update/delete/search):
+                    Current events context (use these real IDs for update/delete):
                     {current_data}
 
                     Today's date: {datetime.now().strftime('%Y-%m-%d')}
                     User request: {question}
 
-                    RULES:
-                    - Plan ONLY the steps needed to fulfill the user request. Nothing more.
-                    - STRICT ID RULE: Tool parameters like 'event_id' or 'task_id' must ALWAYS be the actual Google alphanumeric ID string (e.g. '7hu1...' or 'WEJs...'). You can NEVER pass a human-readable title/name (like 'punch-out', 'Planning', or 'Syncup') as an 'event_id' or 'task_id'. To update/modify a task or event, you MUST first search or list it, store the result, and pass its ID placeholder (e.g., '$today_tasks.task_id' or '$today_meetings.event_id') to the update tool.
-                    - SYNONYM RULE: The words "meeting", "meetings", and "events" are completely synonymous in this system. If a user asks to "list meetings today", map it directly to 'list_events' for today. Do NOT try to search, filter, or separate "meetings" from "events".
-                    - STRICT READ-ONLY RULE: If the request is a simple read, list, or search query (e.g. "What is on my schedule?", "List today's meetings", "Search tasks"), you MUST use exactly ONE step with 'list_events', 'list_tasks', or 'search_events'. Do NOT add speculative steps like creating, deleting, or updating.
-                    - STRICT NO-HALLUCINATION RULE: You can ONLY use the exact tools provided in the schemas above. NEVER invent, hallucinate, or make up tools like 'filter', 'map', 'select', 'find', 'process', or any programming utilities.
-                    - For adding, creating, or scheduling a NEW event or task, you MUST use exactly ONE step with 'add_event' or 'add_task' directly. Do NOT search first.
-                    - To update or modify an event/task on a specific day (e.g. "today"), use 'list_events' or 'list_tasks' first with 'date_filter' to find the ID, then use 'update_event' or 'update_task'.
-                    - If the request is to modify/update an event/task by name (e.g. "reschedule 'Syncup'"), use 'search_events' or 'list_tasks' first, then use 'update_event' or 'update_task'.
-                    - Dates must be YYYY-MM-DD, times HH:MM only.
+                    STRICT RULES:
+                    1. DIRECT CREATIONS (1 STEP): For adding/scheduling any NEW task or event, use exactly ONE step with 'add_task' or 'add_event' with the 'due_date'/'date' directly. Never search or list first.
+                    2. MODIFICATIONS (MULTI-STEP): To update/modify/delete existing items, you must first search/list them ('list_events'/'list_tasks'/'search_events'/'search_tasks'), store the result, and pass its ID placeholder (e.g. '$today_tasks.task_id') to the action tool.
+                    3. READ-ONLY (1 STEP): For simple listing or searching, use exactly ONE step ('list_events'/'list_tasks'/'search_events'). Never add speculative creation or update steps.
+                    4. SYNONYMS: "meeting", "meetings", and "events" are identical. Map "list meetings" directly to 'list_events'.
+                    5. STRICT FORMATTING: Use ONLY available tools. Never use fictional tools (like 'filter', 'map', 'select'). Never include comments, explanations, notes, or double slashes (//) in your JSON output.
+                    6. PLACEHOLDERS: Stored results are flat JSON lists. Reference fields using only "$store_name.field" (e.g., "$my_search.event_id"). Never use '.items', 'items[0]', or '[0]'.
+                    7. STRICT ID RULE: Parameters 'event_id' and 'task_id' must be raw alphanumeric IDs. Never pass a human-readable title (like 'Planning' or 'punch-out') as an ID.
+                    8. NO OVER-PLANNING: For a simple, single-field update/delete on an already-uniquely-identified item, use only the minimum steps needed (find it, then act on it). Never add extra no-op steps that set a field to its own current value, and never create a new resource (e.g. via 'add_task'/'add_event') as a substitute for updating the existing one.
+                    9. DISAMBIGUATION: When the user names a specific item by title/keyword (e.g., "ingestion-tool"), use 'search_tasks' or 'search_events' with that keyword to find the exact matching item. Only use 'list_tasks'/'list_events' when the user does NOT reference any specific title/keyword.
 
-                    PLACEHOLDER RULES:
-                    - Stored results are flat JSON lists. To access fields from a previous step, write ONLY "$store_name.field_name" (e.g., "$my_search.event_id", "$my_search.task_id").
-                    - STRICT RULE: NEVER use '.items', 'items[0]', or '[0]' in your placeholders. Our system handles list indexing automatically. Just use "$store_name.event_id".
+                    Respond ONLY with a JSON array of steps matching one of these structures:
 
-                    Respond ONLY with a JSON array of steps matching one of these two structures:
-
-                    Example 1 (Direct Creation - Exactly 1 Step):
-                    [
-                      {{"step": 1, "tool": "add_task", "args": {{"title": "Check email", "due_date": "2026-08-05"}}, "depends_on": null, "store_result_as": null}}
-                    ]
-
-                    Example 2 (Modification / Update - Multi-Step):
-                    [
-                      {{"step": 1, "tool": "list_events", "args": {{"date_filter": "today"}}, "depends_on": null, "store_result_as": "today_meetings"}},
-                      {{"step": 2, "tool": "update_event", "args": {{"event_id": "$today_meetings.event_id", "field": "attendees", "value": "Priya"}}, "depends_on": 1, "store_result_as": null}}
-                    ]
+                    Example 1 (Direct Creation): [{{ "step": 1, "tool": "add_task", "args": {{ "title": "Check email", "due_date": "2026-08-05", "due_time": "15:00" }}, "depends_on": null, "store_result_as": null }}]
+                    Example 2 (Update Event): [{{ "step": 1, "tool": "list_events", "args": {{ "date_filter": "today" }}, "depends_on": null, "store_result_as": "today_meetings" }},{{ "step": 2, "tool": "update_event", "args": {{ "event_id": "$today_meetings.event_id", "field": "attendees", "value": "Priya" }}, "depends_on": 1, "store_result_as": null }}]
+                    Example 3 (Subtask): [{{ "step": 1, "tool": "add_task", "args": {{ "title": "Planning" }}, "depends_on": null, "store_result_as": "parent_task" }},{{ "step": 2, "tool": "add_task", "args": {{ "title": "Design", "parent_id": "$parent_task.task_id" }}, "depends_on": 1, "store_result_as": null }}]
+                    Example 4 (Update Named Task): [{{ "step": 1, "tool": "search_tasks", "args": {{ "keyword": "ingestion-tool" }}, "depends_on": null, "store_result_as": "target_task" }},{{ "step": 2, "tool": "update_task", "args": {{ "task_id": "$target_task.task_id", "field": "status", "value": "completed" }}, "depends_on": 1, "store_result_as": null }}]
                     JSON: [/INST]"""
 
                 planner_schema = {
@@ -166,7 +163,7 @@ async def calendar_agent_node(state):
                         "type": "object",
                         "properties": {
                             "step": {"type": "integer"},
-                            "tool": {"type": "string"},
+                            "tool": {"type": "string", "enum": list(tool_schemas.keys())},
                             "args": {"type": "object"},
                             "depends_on": {"type": "integer"},
                             "store_result_as": {"type": "string"}
@@ -294,7 +291,8 @@ async def calendar_agent_node(state):
                                 "no events found" in lower_result or 
                                 "no tasks found" in lower_result or 
                                 "nothing found" in lower_result or
-                                "no upcoming events" in lower_result
+                                "no upcoming events" in lower_result or
+                                "unknown tool" in lower_result
                             )
                             
                             if is_failure:
@@ -333,7 +331,11 @@ async def calendar_agent_node(state):
                 The user asked: {question}
                 Actions performed and results:
                 {tool_results_summary}
-                Write a short simple confirmation or summary. Be concise and to the point [/INST]"""
+                STRICT RULES:
+                1. Only state facts explicitly present in the 'Actions performed and results' above. Never invent, assume, or restate the user's originally requested value as confirmed — always use the exact value returned by the tools.
+                2. If a step is marked FAILED, ERROR, or ABORTED, clearly say so instead of implying success.
+                3. Do not mention tool names, step numbers, or internal IDs.
+                Write a short simple confirmation or summary grounded strictly in the above results. Be concise and to the point [/INST]"""
 
                 response = (await llm.ainvoke(response_prompt)).strip()
                 
@@ -365,6 +367,14 @@ async def calendar_agent_node(state):
                 }
 
     except Exception as e:
+        
+        import traceback
+        traceback.print_exc()
+        
+        error_msg = f"I encountered an error connecting to or running the Workspace assistant. Detail: {str(e)}"
+        with open(history_file, "a") as f: 
+            f.write(f"Q: {question}\nA: {error_msg}\n")
+        
         error_msg = f"I encountered an error connecting to or running the Workspace assistant. Detail: {str(e)}"
         with open(history_file, "a") as f: 
             f.write(f"Q: {question}\nA: {error_msg}\n")

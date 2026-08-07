@@ -269,7 +269,23 @@ def update_event(event_id: str,
         event["end"]   = {"dateTime": f"{end_date}T{end_time}:00",     "timeZone": tz}
 
     updated = service.events().update(calendarId="primary", eventId=event_id, body=event).execute()
-    return f"Event '{updated.get('summary')}' updated: {field} = {value}"
+    if field == "title":
+        actual_value = updated.get("summary")
+    elif field == "description":
+        actual_value = updated.get("description")
+    elif field == "attendees":
+        actual_value = ", ".join([a.get("email", "") for a in updated.get("attendees", [])])
+    elif field == "date":
+        actual_value = updated.get("start", {}).get("dateTime", "")[:10]
+    elif field == "start_time":
+        actual_value = updated.get("start", {}).get("dateTime", "")[11:16]
+    elif field == "end_time":
+        actual_value = updated.get("end", {}).get("dateTime", "")[11:16]
+    else:
+        actual_value = value
+    return f"Event '{updated.get('summary')}' updated: {field} = {actual_value}"
+    # updated = service.events().update(calendarId="primary", eventId=event_id, body=event).execute()
+    # return f"Event '{updated.get('summary')}' updated: {field} = {value}"
 
 @MCP.tool()
 def delete_event(event_id: str) -> str:
@@ -343,10 +359,21 @@ def delete_task(task_id: str) -> str:
     service.tasks().delete(tasklist="@default", task=task_id).execute()
     return f"Task {task_id} deleted successfully."
 
+# Helper to detect host system's localized timezone offset (e.g., +05:30)
+def get_timezone_offset() -> str:
+    """Returns the host system's local timezone offset formatted as RFC 3339 (e.g., +05:30)."""
+    tz_offset = datetime.now().astimezone().strftime("%z") # E.g., +0530
+    if len(tz_offset) == 5:
+        return f"{tz_offset[:3]}:{tz_offset[3:]}"
+    return "Z"
+
 @MCP.tool()
-def add_task(title: str, due_date: str = "", notes: str = "") -> str:
+def add_task(title: str, due_date: str = "", due_time: str = "", notes: str = "", parent_id: str = "") -> str:
     """
-    Add a task or to-do item with an optional deadline (YYYY-MM-DD).
+    Add a task or a nested subtask to Google Tasks.
+    - 'due_date': Optional deadline in YYYY-MM-DD.
+    - 'due_time': Optional deadline time in HH:MM (requires due_date to be set).
+    - 'parent_id': Optional parent Task ID to make this task a nested subtask.
     """
     service = get_tasks_service()
     task_body = {
@@ -356,34 +383,76 @@ def add_task(title: str, due_date: str = "", notes: str = "") -> str:
     
     if due_date:
         clean_date = sanitize_date(due_date)
-        # Google Tasks requires RFC 3339 formatting
-        task_body["due"] = f"{clean_date}T00:00:00.000Z"
+        clean_time = sanitize_time(due_time) if due_time else "00:00"
+        offset = get_timezone_offset()
+        task_body["due"] = f"{clean_date}T{clean_time}:00{offset}"
         
-    created = service.tasks().insert(tasklist="@default", body=task_body).execute()
-    return f"Task '{title}' created successfully. ID: {created.get('id')}"
+    kwargs = {"tasklist": "@default", "body": task_body}
+    if parent_id:
+        kwargs["parent"] = parent_id
+        
+    created = service.tasks().insert(**kwargs).execute()
+    
+    msg = f"Task '{title}' created successfully."
+    if parent_id:
+        msg = f"Subtask '{title}' created successfully under parent ID: {parent_id}."
+        
+    return f"{msg} ID: {created.get('id')}"
 
 @MCP.tool()
-def update_task(task_id: str, field: Literal["title", "notes", "status", "due"], value: str) -> str:
+def update_task(task_id: str, 
+                field: Literal["title", "notes", "status", "due", "due_time"], 
+                value: str) -> str:
     """
-    Update a specific field of an existing task (e.g. status = 'completed' or 'needsAction').
-    If updating 'due', value format must be YYYY-MM-DD.
+    Update a specific field of an existing task.
+    - If updating 'due', value format must be YYYY-MM-DD.
+    - If updating 'due_time', value format must be HH:MM.
     """
     service = get_tasks_service()
     task = service.tasks().get(tasklist="@default", task=task_id).execute()
+    offset = get_timezone_offset()
     
+    # Safely unpack existing due date/time if present to avoid overwriting one with another
+    existing_due = task.get("due")
+    if not existing_due or "T" not in existing_due:
+        existing_due = f"{datetime.now().strftime('%Y-%m-%d')}T00:00:00{offset}"
+        
+    existing_date, existing_time_offset = existing_due.split("T")
+    existing_time = existing_time_offset[:5] # Extract 'HH:MM' from start of offset block
+
     if field == "title":
         task["title"] = value
     elif field == "notes":
         task["notes"] = value
     elif field == "status":
-        # Google Tasks statuses are either 'completed' or 'needsAction' (incomplete)
         task["status"] = "completed" if value.lower() in ["completed", "done", "complete"] else "needsAction"
     elif field == "due":
         clean_date = sanitize_date(value)
-        task["due"] = f"{clean_date}T00:00:00.000Z"
+        task["due"] = f"{clean_date}T{existing_time}:00{offset}"
+    elif field == "due_time":
+        clean_time = sanitize_time(value)
+        task["due"] = f"{existing_date}T{clean_time}:00{offset}"
         
     updated = service.tasks().update(tasklist="@default", task=task_id, body=task).execute()
-    return f"Task '{updated.get('title')}' updated: {field} = {value}"
+    field_key_map = {"title": "title", "notes": "notes", "status": "status", "due": "due", "due_time": "due"}
+    actual_value = updated.get(field_key_map.get(field, field), value)
+    return f"Task '{updated.get('title')}' updated: {field} = {actual_value}"
+    # updated = service.tasks().update(tasklist="@default", task=task_id, body=task).execute()
+    # return f"Task '{updated.get('title')}' updated: {field} = {value}"
+
+@MCP.tool()
+def search_tasks(keyword: str) -> str:
+    """Search tasks by keyword in the title (case-insensitive substring match)."""
+    service = get_tasks_service()
+    tasks_data = service.tasks().list(
+        tasklist="@default", maxResults=50, showCompleted=True, showHidden=True
+    ).execute().get("items", [])
+    formatted_tasks = [_format_task(t) for t in tasks_data]
+    keyword_lower = keyword.lower()
+    matched = [t for t in formatted_tasks if keyword_lower in t["title"].lower()]
+    if not matched:
+        return f"No tasks found matching '{keyword}'."
+    return json.dumps(matched)
 
 # =============================================================================
 # GOOGLE DOCS TOOLS (NOTES / DIARY)

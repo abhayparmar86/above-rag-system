@@ -198,7 +198,7 @@ def save_workspace_agent_log(state: dict, planner_prompt: str, raw_plan: str,
         f.write(f"User Query: {state.get('question')}\n\n")
         
         f.write(f"--- PHASE 1: PLANNING ---\n")
-        f.write(f"Planner Prompt:\n{planner_prompt}\n\n")
+        # f.write(f"Planner Prompt:\n{planner_prompt}\n\n")
         f.write(f"Raw LLM Plan Output:\n{raw_plan}\n\n")
         f.write(f"Parsed & Validated Plan:\n{json.dumps(plan, indent=2)}\n\n")
         
